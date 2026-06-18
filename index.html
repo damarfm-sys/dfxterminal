@@ -2,206 +2,19 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>DFXAi Terminal — XAUUSD</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js">
-// ══════════════════════════════════════════════
-// SUPABASE AUTH — all functions in global scope
-// ══════════════════════════════════════════════
-const SUPABASE_URL  = 'https://hkxgkvwyxgiygzmcwdsl.supabase.co';
-const SUPABASE_ANON = 'sb_publishable_6XiMHP0cdS4_NIRgDpYFwQ_7ADAZWv9';
-
-// Init Supabase after SDK loads
-let _supabase;
-function initSupabase() {
-  if (typeof supabase === 'undefined') { setTimeout(initSupabase, 100); return; }
-  _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
-
-  // Check existing session on load
-  _supabase.auth.getSession().then(({ data: { session } }) => {
-    if (session && session.user) showTerminal(session.user);
-  });
-
-  // Listen for auth state changes
-  _supabase.auth.onAuthStateChange((event, session) => {
-    if (event === 'SIGNED_IN' && session) {
-      showTerminal(session.user);
-    } else if (event === 'SIGNED_OUT') {
-      const o = document.getElementById('authOverlay');
-      if (o) { o.style.opacity='1'; o.style.display='flex'; }
-    } else if (event === 'PASSWORD_RECOVERY') {
-      switchAuthTab('reset');
-      const o = document.getElementById('authOverlay');
-      if (o) { o.style.opacity='1'; o.style.display='flex'; }
-    }
-  });
-}
-initSupabase();
-
-// ── HELPERS ──
-function switchAuthTab(tab) {
-  ['login','register','reset'].forEach(t => {
-    const tid = 'tab'   + t.charAt(0).toUpperCase() + t.slice(1);
-    const pid = 'panel' + t.charAt(0).toUpperCase() + t.slice(1);
-    document.getElementById(tid)?.classList.toggle('active', t === tab);
-    document.getElementById(pid)?.classList.toggle('active', t === tab);
-  });
-  clearAuthMsgs();
-}
-
-function clearAuthMsgs() {
-  ['loginMsg','registerMsg','resetMsg'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) { el.className = 'auth-msg'; el.textContent = ''; }
-  });
-}
-
-function showMsg(id, type, msg) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.className = 'auth-msg ' + type + ' show';
-  el.textContent = msg;
-}
-
-function setBtnState(id, disabled, text) {
-  const btn = document.getElementById(id);
-  if (!btn) return;
-  btn.disabled = disabled;
-  btn.textContent = text;
-}
-
-function showTerminal(user) {
-  const overlay = document.getElementById('authOverlay');
-  if (overlay) {
-    overlay.style.transition = 'opacity 0.5s';
-    overlay.style.opacity = '0';
-    setTimeout(() => { overlay.style.display = 'none'; }, 500);
-  }
-  const menuBtn = document.getElementById('userMenuBtn');
-  if (menuBtn) menuBtn.style.display = 'flex';
-  const short = (user.email || '').split('@')[0].toUpperCase();
-  const ed = document.getElementById('userEmailDisplay');
-  const me = document.getElementById('userMenuEmail');
-  if (ed) ed.textContent = '👤 ' + short;
-  if (me) me.textContent = user.email || '';
-}
-
-// ── LOGIN ──
-async function authLogin() {
-  if (!_supabase) { showMsg('loginMsg','error','⚠ Auth not ready, please wait...'); return; }
-  const email = (document.getElementById('loginEmail')?.value || '').trim();
-  const pass  =  document.getElementById('loginPassword')?.value || '';
-  if (!email || !pass) { showMsg('loginMsg','error','⚠ Please enter email and password'); return; }
-  setBtnState('loginBtn', true, 'VERIFYING…');
-  clearAuthMsgs();
-  const { data, error } = await _supabase.auth.signInWithPassword({ email, password: pass });
-  if (error) {
-    showMsg('loginMsg','error','⚠ ' + (error.message || 'Login failed'));
-    document.querySelector('.auth-wrap')?.classList.add('shake');
-    setTimeout(() => document.querySelector('.auth-wrap')?.classList.remove('shake'), 400);
-    setBtnState('loginBtn', false, 'ACCESS TERMINAL');
-    const pp = document.getElementById('loginPassword'); if (pp) pp.value = '';
-  } else {
-    setBtnState('loginBtn', true, '✓ ACCESS GRANTED');
-    const lb = document.getElementById('loginBtn'); if (lb) lb.style.background = 'var(--green)';
-    setTimeout(() => showTerminal(data.user), 600);
-  }
-}
-
-// ── REGISTER ──
-async function authRegister() {
-  if (!_supabase) { showMsg('registerMsg','error','⚠ Auth not ready, please wait...'); return; }
-  const name    = (document.getElementById('regName')?.value     || '').trim();
-  const email   = (document.getElementById('regEmail')?.value    || '').trim();
-  const pass    =  document.getElementById('regPassword')?.value || '';
-  const confirm =  document.getElementById('regConfirm')?.value  || '';
-  if (!name||!email||!pass||!confirm) { showMsg('registerMsg','error','⚠ All fields are required'); return; }
-  if (pass.length < 8)   { showMsg('registerMsg','error','⚠ Password must be at least 8 characters'); return; }
-  if (pass !== confirm)  { showMsg('registerMsg','error','⚠ Passwords do not match'); return; }
-  setBtnState('registerBtn', true, 'CREATING ACCOUNT…');
-  clearAuthMsgs();
-  const { error } = await _supabase.auth.signUp({
-    email, password: pass,
-    options: { data: { full_name: name }, emailRedirectTo: window.location.origin }
-  });
-  if (error) {
-    showMsg('registerMsg','error','⚠ ' + (error.message || 'Registration failed'));
-  } else {
-    showMsg('registerMsg','success','✓ Account created! Check your email (' + email + ') to verify before logging in.');
-    ['regName','regEmail','regPassword','regConfirm'].forEach(id => {
-      const el = document.getElementById(id); if (el) el.value = '';
-    });
-  }
-  setBtnState('registerBtn', false, 'CREATE ACCOUNT');
-}
-
-// ── RESET PASSWORD ──
-async function authReset() {
-  if (!_supabase) return;
-  const email = (document.getElementById('resetEmail')?.value || '').trim();
-  if (!email) { showMsg('resetMsg','error','⚠ Please enter your email'); return; }
-  setBtnState('resetBtn', true, 'SENDING…');
-  clearAuthMsgs();
-  const { error } = await _supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: window.location.origin
-  });
-  if (error) {
-    showMsg('resetMsg','error','⚠ ' + (error.message || 'Failed to send reset email'));
-  } else {
-    showMsg('resetMsg','success','✓ Reset link sent to ' + email + '. Check your inbox!');
-  }
-  setBtnState('resetBtn', false, 'SEND RESET LINK');
-}
-
-// ── LOGOUT ──
-async function authLogout() {
-  if (!_supabase) return;
-  await _supabase.auth.signOut();
-  const menuBtn = document.getElementById('userMenuBtn');
-  if (menuBtn) menuBtn.style.display = 'none';
-  toggleUserMenu(false);
-  const o = document.getElementById('authOverlay');
-  if (o) { o.style.opacity = '1'; o.style.display = 'flex'; }
-  switchAuthTab('login');
-}
-
-// ── USER MENU TOGGLE ──
-function toggleUserMenu(force) {
-  const dd = document.getElementById('userMenuDropdown');
-  if (!dd) return;
-  const show = force !== undefined ? force : !dd.classList.contains('show');
-  dd.classList.toggle('show', show);
-}
-
-// Close menu on outside click
-document.addEventListener('click', e => {
-  if (!e.target.closest('#userMenuBtn') && !e.target.closest('#userMenuDropdown')) {
-    toggleUserMenu(false);
-  }
-});
-
-// Enter key shortcuts
-document.addEventListener('DOMContentLoaded', () => {
-  document.getElementById('loginEmail')?.addEventListener('keydown',    e => { if(e.key==='Enter') authLogin(); });
-  document.getElementById('loginPassword')?.addEventListener('keydown', e => { if(e.key==='Enter') authLogin(); });
-  document.getElementById('regConfirm')?.addEventListener('keydown',    e => { if(e.key==='Enter') authRegister(); });
-  document.getElementById('resetEmail')?.addEventListener('keydown',    e => { if(e.key==='Enter') authReset(); });
-});
-
-</script>
-  <link rel="stylesheet" href="style.css">
-
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-
-<!-- ══ AUTH OVERLAY ══ -->
+<!-- AUTH OVERLAY -->
 <div id="authOverlay">
   <div class="auth-wrap">
     <div class="auth-logo">
-      <div class="auth-logo-main"><div class="auth-logo-dot"></div>DFXAi<span style="color:var(--text-secondary);font-weight:400"> TERMINAL</span></div>
+      <div class="auth-logo-main"><div class="auth-logo-dot"></div>DFXAi<span style="color:var(--t2);font-weight:400"> TERMINAL</span></div>
       <div class="auth-logo-sub">Professional XAUUSD Trading Platform</div>
     </div>
     <div class="auth-card">
@@ -211,64 +24,36 @@ document.addEventListener('DOMContentLoaded', () => {
         <button class="auth-tab" id="tabReset" onclick="window.switchAuthTab('reset')" style="font-size:9px">◈ RESET</button>
       </div>
       <div class="auth-body">
-
-        <!-- LOGIN PANEL -->
         <div class="auth-panel active" id="panelLogin">
-          <div class="auth-field">
-            <label class="auth-label">Email</label>
-            <input class="auth-input" id="loginEmail" type="email" placeholder="your@email.com" autocomplete="email">
-          </div>
-          <div class="auth-field">
-            <label class="auth-label">Password</label>
-            <input class="auth-input" id="loginPassword" type="password" placeholder="••••••••••" autocomplete="current-password">
-          </div>
+          <div class="auth-field"><label class="auth-label">Email</label><input class="auth-input" id="loginEmail" type="email" placeholder="your@email.com" autocomplete="email"></div>
+          <div class="auth-field"><label class="auth-label">Password</label><input class="auth-input" id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password"></div>
           <div class="auth-msg error" id="loginMsg"></div>
           <button class="auth-btn" id="loginBtn" onclick="window.authLogin()">ACCESS TERMINAL</button>
         </div>
-
-        <!-- REGISTER PANEL -->
         <div class="auth-panel" id="panelRegister">
-          <div class="auth-field">
-            <label class="auth-label">Full Name</label>
-            <input class="auth-input" id="regName" type="text" placeholder="Your Name" autocomplete="name">
-          </div>
-          <div class="auth-field">
-            <label class="auth-label">Email</label>
-            <input class="auth-input" id="regEmail" type="email" placeholder="your@email.com" autocomplete="email">
-          </div>
-          <div class="auth-field">
-            <label class="auth-label">Password <span style="color:var(--text-dim);font-size:8px">(min 8 chars)</span></label>
-            <input class="auth-input" id="regPassword" type="password" placeholder="••••••••••" autocomplete="new-password">
-          </div>
-          <div class="auth-field">
-            <label class="auth-label">Confirm Password</label>
-            <input class="auth-input" id="regConfirm" type="password" placeholder="••••••••••" autocomplete="new-password">
-          </div>
-          <div class="auth-msg error" id="registerMsg"></div>
+          <div class="auth-field"><label class="auth-label">Full Name</label><input class="auth-input" id="regName" type="text" placeholder="Your Name"></div>
+          <div class="auth-field"><label class="auth-label">Email</label><input class="auth-input" id="regEmail" type="email" placeholder="your@email.com"></div>
+          <div class="auth-field"><label class="auth-label">Password <span style="color:var(--t3);font-size:8px">(min 8 chars)</span></label><input class="auth-input" id="regPassword" type="password" placeholder="••••••••"></div>
+          <div class="auth-field"><label class="auth-label">Confirm Password</label><input class="auth-input" id="regConfirm" type="password" placeholder="••••••••"></div>
+          <div class="auth-msg" id="registerMsg"></div>
           <button class="auth-btn" id="registerBtn" onclick="window.authRegister()">CREATE ACCOUNT</button>
         </div>
-
-        <!-- RESET PANEL -->
         <div class="auth-panel" id="panelReset">
-          <div style="font-size:10px;color:var(--text-secondary);line-height:1.6;padding:4px 0">
-            Enter your email address and we'll send you a link to reset your password.
-          </div>
-          <div class="auth-field">
-            <label class="auth-label">Email</label>
-            <input class="auth-input" id="resetEmail" type="email" placeholder="your@email.com">
-          </div>
+          <div style="font-size:10px;color:var(--t2);line-height:1.6;padding:4px 0">Enter your email to receive a password reset link.</div>
+          <div class="auth-field"><label class="auth-label">Email</label><input class="auth-input" id="resetEmail" type="email" placeholder="your@email.com"></div>
           <div class="auth-msg" id="resetMsg"></div>
           <button class="auth-btn" id="resetBtn" onclick="window.authReset()">SEND RESET LINK</button>
-          <button class="auth-btn secondary" onclick="window.switchAuthTab('login')" style="margin-top:0">← BACK TO LOGIN</button>
+          <button class="auth-btn sec" onclick="window.switchAuthTab('login')" style="margin-top:4px">← Back to Login</button>
         </div>
-
       </div>
-      <div class="auth-footer">🔒 Secured by Supabase · DFXAi Terminal v10</div>
+      <div class="auth-footer">🔒 Secured by Supabase · DFXAi Terminal v17</div>
     </div>
   </div>
 </div>
+
+<!-- TOPBAR -->
 <div class="topbar">
-  <div class="logo"><div class="logo-dot"></div>DFXAi<span style="color:var(--text-secondary);font-weight:400"> TERMINAL</span></div>
+  <div class="logo"><div class="logo-dot"></div>DFXAi<span style="color:var(--t2);font-weight:400"> TERMINAL</span></div>
   <div class="ticker-strip">
     <div class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau">—</span><span class="ticker-chg" id="t-xau-chg">—</span></div>
     <div class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price" id="t-xag">—</span><span class="ticker-chg" id="t-xag-chg">—</span></div>
@@ -278,20 +63,19 @@ document.addEventListener('DOMContentLoaded', () => {
     <div class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10">—</span><span class="ticker-chg" id="t-us10-chg">—</span></div>
   </div>
   <div class="topbar-right">
+    <button id="userMenuBtn" onclick="window.toggleUserMenu()"><span id="userEmailDisplay">—</span> ▾</button>
+    <div id="userMenuDropdown">
+      <div class="user-menu-item" id="userMenuEmail" style="color:var(--t3);cursor:default;font-size:9px">—</div>
+      <div class="user-menu-div"></div>
+      <div class="user-menu-item danger" onclick="window.authLogout()">🚪 &nbsp;Logout</div>
+    </div>
     <span class="api-status api-load" id="apiStatusBadge">⟳ CONNECTING</span>
-    <button id="userMenuBtn" onclick="window.toggleUserMenu()">
-  <span id="userEmailDisplay">—</span> ▾
-</button>
-<div id="userMenuDropdown">
-  <div class="user-menu-item" style="color:var(--text-dim);font-size:9px;letter-spacing:1px;cursor:default" id="userMenuEmail">—</div>
-  <div class="user-menu-divider"></div>
-  <div class="user-menu-item" onclick="window.authLogout()">🚪 &nbsp;LOGOUT</div>
-</div>
-<div class="live-badge"><div class="live-dot"></div>LIVE</div>
-    <div style="color:var(--text-secondary);font-size:11px" id="clockDisplay">--:--:-- UTC</div>
+    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+    <div style="color:var(--t2);font-size:11px" id="clockDisplay">--:--:-- UTC</div>
   </div>
 </div>
 
+<!-- NAV -->
 <div class="nav-tabs">
   <div class="tab active" onclick="window.switchPage('dashboard',this)">◈ Dashboard</div>
   <div class="tab" onclick="window.switchPage('charts',this)">◈ Charts</div>
@@ -301,24 +85,26 @@ document.addEventListener('DOMContentLoaded', () => {
   <div class="tab" onclick="window.switchPage('sentiment',this)">◈ Sentiment</div>
   <div class="tab" onclick="window.switchPage('geopolitical',this)">◈ Geopolitical</div>
   <div class="tab" onclick="window.switchPage('livetv',this)">📺 Live TV</div>
+  <div class="tab" onclick="window.switchPage('ai',this)">🤖 AI Analysis</div>
 </div>
 
-
-<!-- MARKET STATUS BANNER -->
-<div id="marketBanner">
+<!-- MARKET BANNER -->
+<div id="marketBanner" style="display:none">
   <span class="mb-icon">🔴</span>
-  <span id="marketBannerText">MARKET CLOSED — Weekend</span>
-  <span class="mb-next" id="marketNextOpen">Next open: Monday 00:00 UTC</span>
+  <span id="marketBannerText">MARKET CLOSED</span>
+  <span class="mb-next" id="marketNextOpen"></span>
 </div>
+
 <div class="main-content">
 
-<!-- DASHBOARD -->
+<!-- ═══ DASHBOARD ═══ -->
 <div id="page-dashboard" class="page active">
   <div class="grid-4" style="margin-bottom:8px">
+    <!-- XAU HERO -->
     <div class="panel col-span-2">
       <div class="panel-header">
         <div class="panel-title"><span class="accent">XAU</span>/USD · SPOT GOLD</div>
-        <span style="font-size:9px;color:var(--text-dim)" id="xauLastUpdate">Fetching…</span>
+        <span style="font-size:9px;color:var(--t3)" id="xauLastUpdate">Fetching…</span>
       </div>
       <div class="price-hero">
         <div class="price-main" id="xauPrice">—</div>
@@ -332,20 +118,15 @@ document.addEventListener('DOMContentLoaded', () => {
         <div><div class="stat-label">Change %</div><div class="stat-val" id="xauPct">—</div></div>
       </div>
     </div>
+    <!-- DXY -->
     <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">DXY</span> · EUR/USD Proxy <span style="font-size:8px;color:var(--text-dim)">(inverse)</span></div></div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">EUR/USD</span> · DXY Proxy</div></div>
       <div style="padding:12px">
-        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:12px">
-          <span style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--blue)" id="dxyPrice">—</span>
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px">
+          <span style="font-family:'Syne',sans-serif;font-size:26px;font-weight:800;color:var(--blue)" id="dxyPrice">—</span>
           <span id="dxyChg" style="font-size:12px">—</span>
         </div>
-        <div style="height:80px;overflow:hidden;border-radius:3px;background:var(--bg-card)" id="dxyMiniWrap">
-          <iframe
-            src="https://www.tradingview.com/widgetembed/?frameElementId=tvDxyMini&symbol=OANDA%3AEURUSD&interval=60&hidesidetoolbar=1&hidetoptoolbar=1&symboledit=0&saveimage=0&toolbarbg=080d1a&theme=dark&style=3&timezone=UTC&locale=en&allow_symbol_change=0"
-            style="width:calc(100% + 0px);height:80px;border:none;pointer-events:none;display:block"
-            loading="lazy" title="EUR/USD Mini">
-          </iframe>
-        </div>
+        <div style="height:80px"><canvas id="dxyMiniChart"></canvas></div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
           <div><div class="stat-label">High</div><div class="stat-val" id="dxyHigh">—</div></div>
           <div><div class="stat-label">Low</div><div class="stat-val" id="dxyLow">—</div></div>
@@ -354,24 +135,26 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </div>
     </div>
+    <!-- SIGNAL -->
     <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> TODAY'S SIGNAL</div><span style="font-size:9px;color:var(--text-dim)" id="signalDate">—</span></div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> TODAY'S SIGNAL</div><span style="font-size:9px;color:var(--t3)" id="signalDate">—</span></div>
       <div style="padding:12px">
         <div class="signal-box buy" id="dashSignalBox">
           <div class="signal-label buy" id="signalDir">—</div>
-          <div class="signal-row"><span class="signal-key">Entry Zone</span><span class="signal-val up" id="sigEntry">Computing…</span></div>
+          <div class="signal-row"><span class="signal-key">Entry</span><span class="signal-val up" id="sigEntry">Computing…</span></div>
           <div class="signal-row"><span class="signal-key">Target 1</span><span class="signal-val up" id="sigTP1">—</span></div>
           <div class="signal-row"><span class="signal-key">Target 2</span><span class="signal-val up" id="sigTP2">—</span></div>
           <div class="signal-row"><span class="signal-key">Stop Loss</span><span class="signal-val down" id="sigSL">—</span></div>
-          <div class="signal-row"><span class="signal-key">R:R Ratio</span><span class="signal-val" style="color:var(--gold)" id="sigRR">—</span></div>
+          <div class="signal-row"><span class="signal-key">R:R</span><span class="signal-val" style="color:var(--gold)" id="sigRR">—</span></div>
         </div>
         <div style="margin-top:10px;padding:8px;background:var(--bg-card);border-radius:3px;border-left:2px solid var(--gold)">
-          <div style="font-size:9px;color:var(--text-secondary);line-height:1.6" id="signalRationale">Analyzing…</div>
+          <div style="font-size:9px;color:var(--t2);line-height:1.6" id="signalRationale">Analyzing…</div>
         </div>
       </div>
     </div>
   </div>
 
+  <!-- CHART + LEVELS -->
   <div class="grid-4" style="margin-bottom:8px">
     <div class="panel col-span-3">
       <div class="panel-header">
@@ -384,15 +167,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <span class="tab" style="padding:3px 8px;font-size:9px" onclick="window.changeInterval('1day',this)">D1</span>
         </div>
       </div>
-      <div style="height:280px;overflow:hidden">
-        <iframe
-          id="tvMainChart"
-          src="https://www.tradingview.com/widgetembed/?frameElementId=tvMainChart&symbol=OANDA%3AXAUUSD&interval=60&hidesidetoolbar=0&hidetoptoolbar=0&symboledit=0&saveimage=0&toolbarbg=080d1a&studies=%5B%22MASimple%4020%22%2C%22MASimple%4050%22%5D&theme=dark&style=1&timezone=UTC&withdateranges=1&locale=en&allow_symbol_change=0"
-          style="width:100%;height:280px;border:none"
-          allowtransparency="true" allowfullscreen loading="lazy"
-          title="XAUUSD Chart">
-        </iframe>
-      </div>
+      <div class="chart-wrap" style="height:260px"><canvas id="xauMainChart"></canvas></div>
     </div>
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> KEY LEVELS</div></div>
@@ -411,6 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
     </div>
   </div>
 
+  <!-- BOTTOM ROW -->
   <div class="grid-3">
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> FUNDAMENTAL MATRIX</div></div>
@@ -422,67 +198,33 @@ document.addEventListener('DOMContentLoaded', () => {
         <div class="indicator-row"><span class="ind-name">Risk Appe.</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:68%;background:var(--green)"></div></div><span class="ind-val up">Low</span><span class="ind-signal up">BULLISH</span></div>
         <div class="indicator-row"><span class="ind-name">ETF Flows</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:74%;background:var(--green)"></div></div><span class="ind-val up">+8.2T</span><span class="ind-signal up">BULLISH</span></div>
         <div style="margin-top:12px;padding:10px;background:rgba(34,217,138,0.06);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center">
-          <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px">OVERALL BIAS</div>
+          <div style="font-size:9px;color:var(--t2);margin-bottom:4px">OVERALL BIAS</div>
           <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--green);letter-spacing:3px">BULLISH</div>
         </div>
       </div>
     </div>
     <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title"><span class="accent">◈</span> ECON CALENDAR</div>
-        <span style="font-size:9px;color:var(--text-dim)">investing.com · LIVE</span>
-      </div>
-      <div style="overflow:hidden;height:280px;position:relative">
-        <div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:10px;z-index:0">Loading…</div>
-        <iframe
-          src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=timezone&countries=5,22,25,32,4&importance=2,3&calType=day&timeZone=18&lang=1"
-          style="width:100%;height:280px;border:none;display:block;position:relative;z-index:1;filter:invert(0.92) hue-rotate(180deg) saturate(0.85) brightness(0.88)"
-          loading="lazy"
-          title="Economic Calendar">
-        </iframe>
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> ECON CALENDAR</div><span style="font-size:9px;color:var(--t3)">investing.com · LIVE</span></div>
+      <div style="height:280px;overflow:hidden;position:relative">
+        <iframe src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=timezone&countries=5,22,25,32,4&importance=2,3&calType=day&timeZone=18&lang=1"
+          style="width:100%;height:280px;border:none;display:block;filter:invert(0.92) hue-rotate(180deg) saturate(0.85) brightness(0.88)" loading="lazy"></iframe>
       </div>
     </div>
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> LATEST NEWS</div></div>
-      <div id="newsPreview"><div style="padding:20px;text-align:center;color:var(--text-dim)">Loading…</div></div>
+      <div id="newsPreview"><div style="padding:20px;text-align:center;color:var(--t3)">Loading…</div></div>
     </div>
   </div>
 </div>
 
-<!-- CHARTS -->
+<!-- ═══ CHARTS ═══ -->
 <div id="page-charts" class="page">
   <div class="grid-2" style="margin-bottom:8px">
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title"><span class="accent">XAUUSD</span> · CHART — TradingView</div>
-        <span style="font-size:9px;color:var(--text-dim)">OANDA:XAUUSD · LIVE</span>
-      </div>
-      <div style="height:300px;overflow:hidden">
-        <iframe
-          src="https://www.tradingview.com/widgetembed/?frameElementId=tvXauH1&symbol=OANDA%3AXAUUSD&interval=60&hidesidetoolbar=0&hidetoptoolbar=0&symboledit=0&saveimage=1&toolbarbg=080d1a&studies=%5B%22MASimple%4020%22%2C%22MASimple%4050%22%2C%22RSI%4014%22%5D&theme=dark&style=1&timezone=UTC&withdateranges=1&locale=en&allow_symbol_change=0"
-          style="width:100%;height:300px;border:none"
-          allowtransparency="true" allowfullscreen loading="lazy"
-          title="XAUUSD H1 Chart">
-        </iframe>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title"><span class="accent">DXY / EUR/USD</span> · TradingView</div>
-        <span style="font-size:9px;color:var(--text-dim)">OANDA:EURUSD · LIVE</span>
-      </div>
-      <div style="height:300px;overflow:hidden">
-        <iframe
-          src="https://www.tradingview.com/widgetembed/?frameElementId=tvDxyH1&symbol=OANDA%3AEURUSD&interval=60&hidesidetoolbar=0&hidetoptoolbar=0&symboledit=0&saveimage=1&toolbarbg=080d1a&studies=%5B%22MASimple%4020%22%2C%22MASimple%4050%22%5D&theme=dark&style=1&timezone=UTC&withdateranges=1&locale=en&allow_symbol_change=0"
-          style="width:100%;height:300px;border:none"
-          allowtransparency="true" allowfullscreen loading="lazy"
-          title="EUR/USD Chart">
-        </iframe>
-      </div>
-    </div>
+    <div class="panel"><div class="panel-header"><div class="panel-title"><span class="accent">XAUUSD</span> · 1H CHART</div></div><div class="chart-wrap" style="height:300px"><canvas id="xauH1Chart"></canvas></div></div>
+    <div class="panel"><div class="panel-header"><div class="panel-title"><span class="accent">EUR/USD</span> · 1H CHART (DXY Proxy)</div></div><div class="chart-wrap" style="height:300px"><canvas id="dxyH1Chart"></canvas></div></div>
   </div>
   <div class="panel">
-    <div class="panel-header"><div class="panel-title"><span class="accent">TECHNICAL</span> INDICATORS — XAUUSD (Live Computed)</div></div>
+    <div class="panel-header"><div class="panel-title"><span class="accent">TECHNICAL</span> INDICATORS — XAUUSD</div></div>
     <div style="padding:12px">
       <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
         <div style="padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:3px;text-align:center"><div class="stat-label">RSI (14)</div><div style="font-size:20px;font-weight:700;font-family:'Syne',sans-serif;margin:6px 0" id="techRSI">—</div><div style="font-size:9px" id="techRSISig">—</div></div>
@@ -490,23 +232,21 @@ document.addEventListener('DOMContentLoaded', () => {
         <div style="padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:3px;text-align:center"><div class="stat-label">EMA 50</div><div style="font-size:20px;font-weight:700;font-family:'Syne',sans-serif;margin:6px 0;color:var(--blue)" id="techEMA50">—</div><div style="font-size:9px" id="techEMA50Sig">—</div></div>
         <div style="padding:10px;background:var(--bg-card);border:1px solid var(--border);border-radius:3px;text-align:center"><div class="stat-label">ATR (14)</div><div style="font-size:20px;font-weight:700;font-family:'Syne',sans-serif;margin:6px 0;color:var(--purple)" id="techATR">—</div><div style="font-size:9px;color:var(--purple)">VOLATILITY</div></div>
       </div>
-      <div class="indicator-row"><span class="ind-name">EMA 20</span><div class="ind-bar-wrap"><div class="ind-bar" id="barEMA20" style="width:50%;background:var(--text-dim)"></div></div><span class="ind-val" id="valEMA20">—</span><span class="ind-signal" id="sigEMA20">—</span></div>
-      <div class="indicator-row"><span class="ind-name">EMA 50</span><div class="ind-bar-wrap"><div class="ind-bar" id="barEMA50" style="width:50%;background:var(--text-dim)"></div></div><span class="ind-val" id="valEMA50">—</span><span class="ind-signal" id="sigEMA50">—</span></div>
-      <div class="indicator-row"><span class="ind-name">RSI (14)</span><div class="ind-bar-wrap"><div class="ind-bar" id="barRSI" style="width:50%;background:var(--text-dim)"></div></div><span class="ind-val" id="valRSI">—</span><span class="ind-signal" id="sigRSI">—</span></div>
-      <div class="indicator-row"><span class="ind-name">BB Upper</span><div class="ind-bar-wrap"><div class="ind-bar" id="barBBU" style="width:50%;background:var(--text-dim)"></div></div><span class="ind-val" id="valBBU">—</span><span class="ind-signal" id="sigBBU">—</span></div>
-      <div class="indicator-row"><span class="ind-name">BB Lower</span><div class="ind-bar-wrap"><div class="ind-bar" id="barBBL" style="width:50%;background:var(--text-dim)"></div></div><span class="ind-val" id="valBBL">—</span><span class="ind-signal" id="sigBBL">—</span></div>
+      <div class="indicator-row"><span class="ind-name">EMA 20</span><div class="ind-bar-wrap"><div class="ind-bar" id="barEMA20" style="width:50%;background:var(--t3)"></div></div><span class="ind-val" id="valEMA20">—</span><span class="ind-signal" id="sigEMA20">—</span></div>
+      <div class="indicator-row"><span class="ind-name">EMA 50</span><div class="ind-bar-wrap"><div class="ind-bar" id="barEMA50" style="width:50%;background:var(--t3)"></div></div><span class="ind-val" id="valEMA50">—</span><span class="ind-signal" id="sigEMA50">—</span></div>
+      <div class="indicator-row"><span class="ind-name">RSI (14)</span><div class="ind-bar-wrap"><div class="ind-bar" id="barRSI" style="width:50%;background:var(--t3)"></div></div><span class="ind-val" id="valRSI">—</span><span class="ind-signal" id="sigRSI">—</span></div>
     </div>
   </div>
 </div>
 
-<!-- SIGNALS -->
+<!-- ═══ SIGNALS ═══ -->
 <div id="page-signals" class="page">
   <div class="grid-3">
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> DAY TRADE SIGNAL</div><span class="api-status api-load" id="signalStatus">Computing…</span></div>
       <div style="padding:14px">
         <div class="signal-box buy" id="daySignalBox">
-          <div style="font-size:9px;color:var(--text-dim);margin-bottom:4px" id="sigSetupType">—</div>
+          <div style="font-size:9px;color:var(--t3);margin-bottom:4px" id="sigSetupType">—</div>
           <div class="signal-label buy" id="sigDirFull">—</div>
           <div style="height:1px;background:rgba(34,217,138,0.2);margin:8px 0"></div>
           <div class="signal-row"><span class="signal-key">ENTRY ZONE</span><span class="signal-val up" id="sigEntryFull">—</span></div>
@@ -517,17 +257,17 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="signal-row"><span class="signal-key">CONFIDENCE</span><span class="signal-val up" id="sigConf">—</span></div>
         </div>
         <div style="margin-top:10px;padding:10px;background:var(--bg-card);border-radius:3px;border-left:3px solid var(--gold)">
-          <div style="font-size:9px;color:var(--gold);margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">Rationale</div>
-          <div style="font-size:10px;color:var(--text-secondary);line-height:1.6" id="sigRationaleFull">Loading live data…</div>
+          <div style="font-size:9px;color:var(--gold);margin-bottom:4px;letter-spacing:1px">RATIONALE</div>
+          <div style="font-size:10px;color:var(--t2);line-height:1.6" id="sigRationaleFull">Analyzing…</div>
         </div>
       </div>
     </div>
     <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> SWING SIGNAL</div><span style="font-size:9px;color:var(--text-dim)">WEEKLY BIAS</span></div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> SWING SIGNAL</div><span style="font-size:9px;color:var(--t3)">WEEKLY BIAS</span></div>
       <div style="padding:14px">
         <div class="signal-box buy" id="swingSignalBox">
-          <div style="font-size:9px;color:var(--text-dim);margin-bottom:4px">TREND CONTINUATION</div>
-          <div class="signal-label buy" id="swingDir">LONG ▲</div>
+          <div style="font-size:9px;color:var(--t3);margin-bottom:4px">TREND CONTINUATION</div>
+          <div class="signal-label buy" id="swingDir">—</div>
           <div style="height:1px;background:rgba(34,217,138,0.2);margin:8px 0"></div>
           <div class="signal-row"><span class="signal-key">ENTRY</span><span class="signal-val up" id="swingEntry">—</span></div>
           <div class="signal-row"><span class="signal-key">STOP LOSS</span><span class="signal-val down" id="swingSL">—</span></div>
@@ -538,173 +278,115 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
     </div>
     <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> TECHNICAL SUMMARY</div></div>
-      <div style="padding:12px" id="techSummaryPanel">
-        <div style="padding:20px;text-align:center;color:var(--text-dim)">Loading chart data…</div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> COT POSITIONING</div></div>
+      <div style="padding:12px">
+        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--t2)">MM LONG</span><span style="color:var(--green);font-size:11px">246,412</span></div><div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px"><div style="width:78%;height:100%;background:var(--green);border-radius:3px"></div></div></div>
+        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--t2)">MM SHORT</span><span style="color:var(--red);font-size:11px">48,230</span></div><div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px"><div style="width:22%;height:100%;background:var(--red);border-radius:3px"></div></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
+          <div><div class="stat-label">Net Position</div><div class="stat-val up">+198,182</div></div>
+          <div><div class="stat-label">WoW Change</div><div class="stat-val up">+12,400</div></div>
+          <div><div class="stat-label">L/S Ratio</div><div class="stat-val">5.1 : 1</div></div>
+          <div><div class="stat-label">COT Bias</div><div class="stat-val up">BULLISH</div></div>
+        </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- COT -->
+<!-- ═══ COT ═══ -->
 <div id="page-cot" class="page">
   <div class="grid-2">
     <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">CFTC</span> COMMITMENTS OF TRADERS — GOLD</div><span style="font-size:9px;color:var(--text-dim)">WEEKLY</span></div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">CFTC</span> COT — GOLD</div><span style="font-size:9px;color:var(--t3)">WEEKLY</span></div>
       <div style="padding:12px">
-        <table class="data-table">
-          <tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
+        <table class="data-table"><tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
           <tr><td style="color:var(--blue)">Managed Money</td><td class="up">246,412</td><td class="down">48,230</td><td class="up">+198,182</td><td class="up">+12,400</td></tr>
           <tr><td style="color:var(--purple)">Producers</td><td class="up">28,400</td><td class="down">312,840</td><td class="down">−284,440</td><td class="down">−4,200</td></tr>
           <tr><td style="color:var(--cyan)">Swap Dealers</td><td class="up">142,890</td><td class="down">68,210</td><td class="up">+74,680</td><td class="up">+3,100</td></tr>
-          <tr><td style="color:var(--gold)">Non-Reportable</td><td class="up">62,100</td><td class="down">50,300</td><td class="up">+11,800</td><td class="down">−800</td></tr>
+          <tr><td style="color:var(--gold)">Non-Report.</td><td class="up">62,100</td><td class="down">50,300</td><td class="up">+11,800</td><td class="down">−800</td></tr>
         </table>
-        <div style="margin-top:14px;padding:12px;background:rgba(34,217,138,0.05);border:1px solid rgba(34,217,138,0.2);border-radius:3px">
-          <div style="font-size:9px;text-transform:uppercase;letter-spacing:1px;color:var(--text-secondary);margin-bottom:6px">COT Analysis</div>
-          <div style="font-size:10px;color:var(--text-secondary);line-height:1.6">Managed Money net long at <span class="up">+198,182</span>. Smart money increased longs by <span class="up">+12,400</span> WoW. COT bias: <span class="up">BULLISH for Gold</span>.</div>
-        </div>
         <div style="margin-top:12px;height:160px"><canvas id="cotBarChart"></canvas></div>
+        <div style="margin-top:10px;padding:10px;background:rgba(34,217,138,0.05);border:1px solid rgba(34,217,138,0.2);border-radius:3px;font-size:10px;color:var(--t2);line-height:1.5">COT bias: Managed Money net long <span class="up">+198,182</span>. WoW smart money increased longs by <span class="up">+12,400</span>. <span class="up">BULLISH for Gold.</span></div>
       </div>
     </div>
     <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">CFTC</span> DXY FUTURES</div></div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">CFTC</span> COT — DXY FUTURES</div></div>
       <div style="padding:12px">
-        <table class="data-table">
-          <tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
+        <table class="data-table"><tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
           <tr><td style="color:var(--blue)">Managed Money</td><td class="up">42,100</td><td class="down">98,320</td><td class="down">−56,220</td><td class="down">−3,400</td></tr>
           <tr><td style="color:var(--purple)">Leveraged Funds</td><td class="up">28,400</td><td class="down">62,840</td><td class="down">−34,440</td><td class="down">−1,800</td></tr>
           <tr><td style="color:var(--cyan)">Asset Managers</td><td class="up">18,900</td><td class="down">8,210</td><td class="up">+10,690</td><td class="down">−400</td></tr>
         </table>
-        <div style="margin-top:14px;padding:12px;background:rgba(255,77,109,0.04);border:1px solid rgba(255,77,109,0.2);border-radius:3px">
-          <div style="font-size:10px;color:var(--text-secondary);line-height:1.6">USD futures net short. Managed Money increasing dollar shorts. COT bias: <span class="down">BEARISH USD = BULLISH Gold</span>.</div>
-        </div>
         <div style="margin-top:12px;height:160px"><canvas id="cotNetChart"></canvas></div>
+        <div style="margin-top:10px;padding:10px;background:rgba(255,77,109,0.04);border:1px solid rgba(255,77,109,0.2);border-radius:3px;font-size:10px;color:var(--t2);line-height:1.5">DXY futures net short. <span class="down">BEARISH USD = BULLISH Gold.</span></div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- CALENDAR -->
+<!-- ═══ CALENDAR ═══ -->
 <div id="page-calendar" class="page">
-  <!-- Filter bar -->
-  <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
-    <div style="font-family:'Syne',sans-serif;font-size:10px;font-weight:600;letter-spacing:2px;color:var(--text-secondary);text-transform:uppercase">FILTER:</div>
-    <button onclick="window.setCalFilter('all')" id="cf-all" style="padding:4px 12px;border-radius:3px;border:1px solid rgba(240,192,64,0.3);background:rgba(240,192,64,0.08);color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer;letter-spacing:1px">ALL</button>
-    <button onclick="window.setCalFilter('high')" id="cf-high" style="padding:4px 12px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer;letter-spacing:1px">● HIGH ONLY</button>
-    <button onclick="window.setCalFilter('usd')" id="cf-usd" style="padding:4px 12px;border-radius:3px;border:1px solid var(--border);background:transparent;color:var(--text-secondary);font-family:'JetBrains Mono',monospace;font-size:9px;cursor:pointer;letter-spacing:1px">🇺🇸 USD</button>
-    <div style="margin-left:auto;font-size:9px;color:var(--text-dim)">Source: Investing.com · Real-time</div>
-  </div>
-
-  <div class="panel" style="overflow:hidden">
+  <div class="panel">
     <div class="panel-header">
-      <div class="panel-title">
-        <span class="accent">◈</span> ECONOMIC CALENDAR — REAL TIME
-      </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <span style="display:flex;align-items:center;gap:4px;font-size:9px;padding:2px 7px;background:rgba(34,217,138,0.1);border:1px solid rgba(34,217,138,0.3);color:var(--green);border-radius:2px">
-          <span style="width:5px;height:5px;background:var(--green);border-radius:50%;animation:blink 1s infinite;display:inline-block"></span>
-          LIVE
-        </span>
-        <span style="font-size:9px;color:var(--text-dim)">investing.com</span>
+      <div class="panel-title"><span class="accent">◈</span> ECONOMIC CALENDAR — LIVE</div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <button class="cal-filter-btn" onclick="window.setCalFilter('all',this)" style="background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.3);color:var(--gold)">ALL</button>
+        <button class="cal-filter-btn" onclick="window.setCalFilter('high',this)" style="background:transparent;border:1px solid var(--border);color:var(--t2)">HIGH ONLY</button>
+        <button class="cal-filter-btn" onclick="window.setCalFilter('usd',this)" style="background:transparent;border:1px solid var(--border);color:var(--t2)">🇺🇸 USD</button>
+        <span style="font-size:9px;color:var(--t3);margin-left:8px">investing.com · Real-time</span>
       </div>
     </div>
-
-    <!-- Investing.com Economic Calendar Widget -->
-    <div style="background:var(--bg-card);height:650px;max-height:80vh;position:relative;overflow:hidden" id="calWidgetWrap">
-      <div id="calLoading" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;color:var(--text-dim);z-index:1">
-        <div style="font-size:24px;animation:pulse-gold 1.5s infinite">⟳</div>
-        <div style="font-size:11px">Loading Investing.com Calendar…</div>
+    <div style="position:relative;height:600px;background:var(--bg-card)">
+      <div id="calLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--t3);z-index:1;flex-direction:column;gap:10px">
+        <div style="font-size:20px">⟳</div><div>Loading calendar…</div>
       </div>
-      <iframe
-        id="investingCalFrame"
+      <iframe id="investingCalFrame"
         src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=datepicker,timezone&countries=5,22,25,32,4,37&calType=week&timeZone=18&lang=1"
-        style="width:100%;height:650px;min-height:500px;max-height:80vh;border:none;display:block;filter:invert(0.92) hue-rotate(180deg) saturate(0.9) brightness(0.85)"
-        onload="document.getElementById('calLoading').style.display='none'"
-        loading="lazy"
-        title="Economic Calendar">
-      </iframe>
+        style="width:100%;height:600px;border:none;display:block;position:relative;z-index:2;filter:invert(0.92) hue-rotate(180deg) saturate(0.9) brightness(0.85)"
+        onload="document.getElementById('calLoading').style.display='none'" loading="lazy"></iframe>
     </div>
-
-    <!-- Gold impact guide -->
+    <!-- Gold Impact Guide -->
     <div style="padding:12px;border-top:1px solid var(--border);background:var(--bg-card)">
-      <div style="font-family:'Syne',sans-serif;font-size:9px;letter-spacing:2px;color:var(--text-secondary);text-transform:uppercase;margin-bottom:10px">GOLD IMPACT GUIDE — EVENT INTERPRETATION</div>
+      <div style="font-family:'Syne',sans-serif;font-size:9px;letter-spacing:2px;color:var(--t2);text-transform:uppercase;margin-bottom:10px">GOLD IMPACT GUIDE</div>
       <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
-        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(255,77,109,0.2);border-radius:3px">
-          <div style="font-size:9px;color:var(--red);margin-bottom:5px;letter-spacing:1px">🔴 HIGH IMPACT → GOLD NAIK</div>
-          <div style="font-size:9px;color:var(--text-secondary);line-height:1.6">
-            • NFP lebih lemah dari forecast<br>
-            • CPI/PCE di bawah ekspektasi<br>
-            • Fed dovish / rate cut signal<br>
-            • GDP miss / resesi signal<br>
-            • Jobless Claims naik tajam
-          </div>
-        </div>
-        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(34,217,138,0.2);border-radius:3px">
-          <div style="font-size:9px;color:var(--green);margin-bottom:5px;letter-spacing:1px">🟢 HIGH IMPACT → GOLD TURUN</div>
-          <div style="font-size:9px;color:var(--text-secondary);line-height:1.6">
-            • NFP lebih kuat dari forecast<br>
-            • CPI/PCE di atas ekspektasi<br>
-            • Fed hawkish / rate hike signal<br>
-            • GDP beat / ekonomi kuat<br>
-            • USD menguat tajam
-          </div>
-        </div>
-        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(240,192,64,0.2);border-radius:3px">
-          <div style="font-size:9px;color:var(--gold);margin-bottom:5px;letter-spacing:1px">⚡ EVENTS PALING PENTING</div>
-          <div style="font-size:9px;color:var(--text-secondary);line-height:1.6">
-            • FOMC Meeting / Minutes<br>
-            • Non-Farm Payroll (NFP)<br>
-            • Core PCE Price Index<br>
-            • CPI / PPI Data<br>
-            • Fed Chair Speech
-          </div>
-        </div>
-        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(77,166,255,0.15);border-radius:3px">
-          <div style="font-size:9px;color:var(--blue);margin-bottom:5px;letter-spacing:1px">📋 STRATEGI TRADING NEWS</div>
-          <div style="font-size:9px;color:var(--text-secondary);line-height:1.6">
-            • Hindari entry 15 menit sebelum<br>
-            • Tunggu spike awal selesai<br>
-            • Entry setelah konfirmasi arah<br>
-            • Perbesar SL saat news time<br>
-            • Perhatikan "buy the rumor sell the news"
-          </div>
-        </div>
+        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(255,77,109,0.2);border-radius:3px"><div style="font-size:9px;color:var(--red);margin-bottom:5px">🔴 GOLD NAIK — Data lemah</div><div style="font-size:9px;color:var(--t2);line-height:1.6">NFP miss · CPI rendah · Fed dovish · GDP lemah · Jobless naik</div></div>
+        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(34,217,138,0.2);border-radius:3px"><div style="font-size:9px;color:var(--green);margin-bottom:5px">🟢 GOLD TURUN — Data kuat</div><div style="font-size:9px;color:var(--t2);line-height:1.6">NFP beat · CPI tinggi · Fed hawkish · GDP kuat · USD menguat</div></div>
+        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(240,192,64,0.2);border-radius:3px"><div style="font-size:9px;color:var(--gold);margin-bottom:5px">⚡ EVENT TERPENTING</div><div style="font-size:9px;color:var(--t2);line-height:1.6">FOMC · NFP · Core PCE · CPI · Fed Chair Speech</div></div>
+        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(77,166,255,0.15);border-radius:3px"><div style="font-size:9px;color:var(--blue);margin-bottom:5px">📋 STRATEGI NEWS</div><div style="font-size:9px;color:var(--t2);line-height:1.6">Hindari entry 15 menit sebelum · Tunggu spike awal · Entry setelah konfirmasi</div></div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- SENTIMENT -->
+<!-- ═══ SENTIMENT ═══ -->
 <div id="page-sentiment" class="page">
   <div class="grid-3">
     <div class="panel col-span-2">
-      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> MULTI-FACTOR FUNDAMENTAL SENTIMENT</div></div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> FUNDAMENTAL SENTIMENT MATRIX</div></div>
       <div style="padding:12px">
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
           <div>
-            <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">MONETARY</div>
+            <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">MONETARY</div>
             <div class="indicator-row"><span class="ind-name">Fed Policy</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:30%;background:var(--green)"></div></div><span class="ind-val up">Dovish</span><span class="ind-signal up">+GOLD</span></div>
             <div class="indicator-row"><span class="ind-name">CPI Trend</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:55%;background:var(--gold)"></div></div><span class="ind-val" style="color:var(--gold)">2.4%↓</span><span class="ind-signal" style="color:var(--gold)">NEUTRAL</span></div>
             <div class="indicator-row"><span class="ind-name">Real Yields</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:38%;background:var(--green)"></div></div><span class="ind-val">1.8%↓</span><span class="ind-signal up">+GOLD</span></div>
             <div class="indicator-row"><span class="ind-name">USD Strength</span><div class="ind-bar-wrap"><div class="ind-bar" id="sentDXYBar" style="width:50%;background:var(--gold)"></div></div><span class="ind-val" id="sentDXYVal">—</span><span class="ind-signal" id="sentDXYSig">—</span></div>
-            <div class="indicator-row"><span class="ind-name">Money Supply</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:65%;background:var(--green)"></div></div><span class="ind-val up">+4.2%</span><span class="ind-signal up">+GOLD</span></div>
           </div>
           <div>
-            <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">DEMAND</div>
+            <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">DEMAND</div>
             <div class="indicator-row"><span class="ind-name">ETF Flows</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:75%;background:var(--green)"></div></div><span class="ind-val up">+8.2T</span><span class="ind-signal up">STRONG</span></div>
             <div class="indicator-row"><span class="ind-name">CB Buying</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:80%;background:var(--green)"></div></div><span class="ind-val up">High</span><span class="ind-signal up">STRONG</span></div>
-            <div class="indicator-row"><span class="ind-name">Jewelry Dem.</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:45%;background:var(--gold)"></div></div><span class="ind-val" style="color:var(--gold)">Mod.</span><span class="ind-signal" style="color:var(--gold)">NEUTRAL</span></div>
             <div class="indicator-row"><span class="ind-name">Retail Long%</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:68%;background:var(--green)"></div></div><span class="ind-val up">72%</span><span class="ind-signal up">BULLISH</span></div>
             <div class="indicator-row"><span class="ind-name">VIX Level</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:58%;background:var(--green)"></div></div><span class="ind-val">22.4↑</span><span class="ind-signal up">+GOLD</span></div>
           </div>
         </div>
         <div style="padding:14px;background:rgba(34,217,138,0.06);border:1px solid rgba(34,217,138,0.25);border-radius:4px;display:flex;align-items:center;gap:20px">
           <div style="text-align:center;flex-shrink:0">
-            <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px;letter-spacing:1px">COMPOSITE</div>
+            <div style="font-size:9px;color:var(--t2);margin-bottom:4px">COMPOSITE</div>
             <div style="font-family:'Syne',sans-serif;font-size:40px;font-weight:800;color:var(--green);line-height:1">78</div>
-            <div style="font-size:9px;color:var(--text-dim)">/100</div>
+            <div style="font-size:9px;color:var(--t3)">/100</div>
           </div>
-          <div><div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--green);letter-spacing:2px;margin-bottom:6px">FUNDAMENTAL BULLISH</div><div style="font-size:10px;color:var(--text-secondary);line-height:1.6">9 of 12 tracked indicators favor gold upside. Structurally supportive environment driven by Fed dovishness, central bank demand, and geopolitical premium.</div></div>
+          <div><div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--green);letter-spacing:2px;margin-bottom:6px">FUNDAMENTAL BULLISH</div><div style="font-size:10px;color:var(--t2);line-height:1.6">9/12 indicators favor gold upside. Fed dovishness, central bank demand, and geopolitical risk create a structurally supportive environment.</div></div>
         </div>
       </div>
     </div>
@@ -712,51 +394,46 @@ document.addEventListener('DOMContentLoaded', () => {
       <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> MARKET SENTIMENT</div></div>
       <div style="display:flex;flex-direction:column;gap:10px;padding:12px">
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:12px">
-          <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Retail Long/Short</div>
+          <div style="font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Retail Long/Short</div>
           <div style="display:flex;height:12px;border-radius:3px;overflow:hidden;margin:8px 0"><div style="width:72%;background:var(--green)"></div><div style="width:28%;background:var(--red)"></div></div>
           <div style="display:flex;justify-content:space-between"><span class="up" style="font-size:11px;font-weight:700">72% LONG</span><span class="down" style="font-size:11px">28% SHORT</span></div>
         </div>
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:12px">
-          <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Fear & Greed Index</div>
-          <div style="display:flex;align-items:center;gap:12px;padding:6px 0"><div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--gold)">38</div><div><div style="font-size:11px;color:var(--gold);font-weight:600">FEAR</div><div style="font-size:9px;color:var(--text-dim)">Supports Gold</div></div></div>
+          <div style="font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Fear & Greed Index</div>
+          <div style="display:flex;align-items:center;gap:12px;padding:6px 0"><div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--gold)">38</div><div><div style="font-size:11px;color:var(--gold);font-weight:600">FEAR</div><div style="font-size:9px;color:var(--t3)">Supports Gold</div></div></div>
           <div style="height:6px;background:linear-gradient(90deg,var(--green),var(--gold),var(--red));border-radius:3px;position:relative"><div style="position:absolute;left:38%;top:-3px;width:2px;height:12px;background:white;border-radius:1px"></div></div>
         </div>
         <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:12px">
-          <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">GVZ Gold Volatility</div>
-          <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--purple)">18.4</div><div><div style="font-size:11px;color:var(--purple);font-weight:600">ELEVATED</div><div style="font-size:9px;color:var(--text-dim)">Watch Moves</div></div></div>
-        </div>
-        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:12px">
-          <div style="font-size:9px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Options Put/Call</div>
-          <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--green)">0.72</div><div><div style="font-size:11px;color:var(--green);font-weight:600">CALL HEAVY</div><div style="font-size:9px;color:var(--text-dim)">Bullish Flow</div></div></div>
+          <div style="font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">GVZ Gold Volatility</div>
+          <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--purple)">18.4</div><div><div style="font-size:11px;color:var(--purple);font-weight:600">ELEVATED</div><div style="font-size:9px;color:var(--t3)">Watch Moves</div></div></div>
         </div>
       </div>
     </div>
   </div>
 </div>
 
-<!-- GEOPOLITICAL -->
+<!-- ═══ GEOPOLITICAL ═══ -->
 <div id="page-geopolitical" class="page">
   <div class="grid-2">
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> ACTIVE GEOPOLITICAL RISKS</div></div>
       <div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇷🇺🇺🇦 Russia-Ukraine War Escalation</span></div><div class="geo-desc">NATO military aid ongoing. Ceasefire talks collapsed repeatedly. Drone strikes on Moscow reported. Risk of nuclear involvement remains elevated. Winter energy crisis brewing in Europe.</div><div class="geo-gold-impact"><span style="color:var(--green)">▲ STRONGLY BULLISH for Gold · Safe haven demand elevated</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇺🇸🇨🇳 US-China Trade War & Tech Sanctions</span></div><div class="geo-desc">US tariffs on Chinese goods at 145%. China countermeasures at 125%. Tech export controls expanding on semiconductors. Both sides increasing South China Sea military presence.</div><div class="geo-gold-impact"><span style="color:var(--green)">▲ BULLISH for Gold · Uncertainty drives safe haven flows</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇱🇵🇸 Middle East Conflict</span></div><div class="geo-desc">Gaza conflict ongoing, ceasefire talks failing. Iran-Israel tension elevated. Red Sea shipping disruptions causing global inflationary pressure. Oil supply risk from regional escalation.</div><div class="geo-gold-impact"><span style="color:var(--gold)">◆ MODERATELY BULLISH · Oil spike = Inflation = Gold up</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇳🇵🇰 India-Pakistan Military Standoff</span></div><div class="geo-desc">Cross-border shelling increasing. Military reserves mobilized. Both nuclear-armed states. Market extremely sensitive to any escalation. International mediators involved.</div><div class="geo-gold-impact"><span style="color:var(--gold)">▲ BULLISH on escalation · Nuclear tail risk premium</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region monitor">MONITOR</span><span class="geo-title">🇹🇼 Taiwan Strait Tensions</span></div><div class="geo-desc">PLA naval exercises near Taiwan continue. US carrier group deployments in response. TSMC supply chain disruption risk accumulating. Long-term strategic risk.</div><div class="geo-gold-impact"><span style="color:var(--gold)">◆ LATENT BULLISH · Escalation = massive gold spike potential</span></div></div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇷🇺🇺🇦 Russia-Ukraine War</span></div><div class="geo-desc">NATO military aid ongoing. Ceasefire repeatedly failing. Drone escalation. Nuclear risk elevated.</div><div class="geo-impact"><span style="color:var(--green)">▲ STRONGLY BULLISH for Gold</span></div></div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇺🇸🇨🇳 US-China Trade War</span></div><div class="geo-desc">Tariffs 145% vs 125%. Tech export controls expanding. South China Sea military buildup.</div><div class="geo-impact"><span style="color:var(--green)">▲ BULLISH for Gold</span></div></div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇱🇵🇸 Middle East Conflict</span></div><div class="geo-desc">Gaza ongoing. Red Sea shipping disruptions. Iran-Israel tension elevated. Oil supply risk.</div><div class="geo-impact"><span style="color:var(--gold)">◆ MODERATELY BULLISH</span></div></div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇳🇵🇰 India-Pakistan Standoff</span></div><div class="geo-desc">Cross-border shelling increasing. Military reserves mobilized. Both nuclear-armed states.</div><div class="geo-impact"><span style="color:var(--gold)">▲ BULLISH on escalation</span></div></div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region monitor">MONITOR</span><span class="geo-title">🇹🇼 Taiwan Strait</span></div><div class="geo-desc">PLA exercises continue. TSMC supply chain risk. US carrier deployments in response.</div><div class="geo-impact"><span style="color:var(--gold)">◆ LATENT BULLISH</span></div></div>
       </div>
     </div>
     <div>
       <div class="panel" style="margin-bottom:8px">
-        <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> GEOPOLITICAL RISK MATRIX</div></div>
+        <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> RISK MATRIX</div></div>
         <div style="padding:12px">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.25);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--text-secondary)">GEO RISK INDEX</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--red)">74</div><div style="font-size:9px;color:var(--red)">HIGH RISK</div></div>
-            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--text-secondary)">SAFE HAVEN</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--green)">+</div><div style="font-size:9px;color:var(--green)">STRONGLY ACTIVE</div></div>
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.25);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--t2)">GEO RISK INDEX</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--red)">74</div><div style="font-size:9px;color:var(--red)">HIGH RISK</div></div>
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--t2)">SAFE HAVEN</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--green)">+</div><div style="font-size:9px;color:var(--green)">ACTIVE</div></div>
           </div>
-          <table class="data-table">
-            <tr><th>Region</th><th>Risk Level</th><th>Probability</th><th>Gold Impact</th></tr>
+          <table class="data-table"><tr><th>Region</th><th>Risk</th><th>Prob.</th><th>Gold</th></tr>
             <tr><td>E. Europe</td><td style="color:var(--red)">Critical</td><td>HIGH</td><td class="up">+++ BUY</td></tr>
             <tr><td>US-China</td><td style="color:var(--red)">Critical</td><td>HIGH</td><td class="up">++ BUY</td></tr>
             <tr><td>Middle East</td><td style="color:var(--gold)">Elevated</td><td>MED</td><td class="up">+ BUY</td></tr>
@@ -766,7 +443,7 @@ document.addEventListener('DOMContentLoaded', () => {
         </div>
       </div>
       <div class="panel">
-        <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CENTRAL BANK GOLD BUYING (tonnes/month)</div></div>
+        <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CENTRAL BANK GOLD BUYING (tonnes)</div></div>
         <div style="padding:12px">
           <div style="height:150px"><canvas id="cbChart"></canvas></div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px">
@@ -780,167 +457,73 @@ document.addEventListener('DOMContentLoaded', () => {
   </div>
 </div>
 
-
-<!-- LIVE TV -->
+<!-- ═══ LIVE TV ═══ -->
 <div id="page-livetv" class="page">
-  <!-- Header stats bar -->
   <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
-    <div style="padding:6px 14px;background:rgba(255,77,109,0.1);border:1px solid rgba(255,77,109,0.3);border-radius:3px;font-size:10px;color:var(--red);display:flex;align-items:center;gap:6px">
-      <span style="width:6px;height:6px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span>
-      LIVE STREAMS ACTIVE
+    <div style="padding:6px 14px;background:rgba(255,77,109,0.1);border:1px solid rgba(255,77,109,0.3);border-radius:3px;font-size:10px;color:var(--red);display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span>LIVE STREAMS</div>
+    <div style="padding:6px 14px;background:var(--bg-panel);border:1px solid var(--border);border-radius:3px;font-size:10px;color:var(--t2)">🔊 Click to play audio · Fullscreen available</div>
+  </div>
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span style="width:7px;height:7px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span><span class="accent">GOLD</span> BOOKMAP · CME FUTURES GC</div><span style="font-size:9px;padding:2px 7px;background:rgba(255,77,109,0.15);border:1px solid rgba(255,77,109,0.3);color:var(--red);border-radius:2px">24/7 LIVE</span></div>
+      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;background:#000">
+        <iframe src="https://www.youtube.com/embed/XIyocP-yr9E?autoplay=0&mute=1&rel=0&modestbranding=1" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen loading="lazy"></iframe>
+      </div>
+      <div style="padding:10px 12px;background:var(--bg-card);border-top:1px solid var(--border);font-size:9px;color:var(--t2);line-height:1.5">📊 Bookmap menampilkan <span style="color:var(--gold)">order book heatmap real-time</span> dari CME GC Futures. Cluster order besar = Support/Resistance kuat.</div>
     </div>
-    <div style="padding:6px 14px;background:var(--bg-panel);border:1px solid var(--border);border-radius:3px;font-size:10px;color:var(--text-secondary)">
-      🔊 Audio plays on click · Full screen available
-    </div>
-    <div style="padding:6px 14px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.2);border-radius:3px;font-size:10px;color:var(--gold)">
-      ⚡ Data from real CME Futures — not CFD
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span style="width:7px;height:7px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span><span class="accent">BLOOMBERG</span> TV · LIVE NEWS</div><span style="font-size:9px;padding:2px 7px;background:rgba(255,77,109,0.15);border:1px solid rgba(255,77,109,0.3);color:var(--red);border-radius:2px">24/7 LIVE</span></div>
+      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;background:#000">
+        <iframe src="https://www.youtube.com/embed/live_stream?channel=UCIALMKvObZNtJ6AmdCLP7Lg&autoplay=0&mute=1&rel=0&modestbranding=1" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen loading="lazy"></iframe>
+      </div>
+      <div style="padding:10px 12px;background:var(--bg-card);border-top:1px solid var(--border);font-size:9px;color:var(--t2);line-height:1.5">📡 Bloomberg TV live — breaking news, Fed commentary, market analysis & wawancara eksklusif fund managers.</div>
     </div>
   </div>
+</div>
 
-  <div class="grid-2" style="margin-bottom:8px">
-    <!-- BOOKMAP GOLD LIVESTREAM -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span style="width:7px;height:7px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span>
-          <span class="accent">GOLD</span> BOOKMAP · HEATMAP & LIQUIDITY
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:9px;padding:2px 7px;background:rgba(255,77,109,0.15);border:1px solid rgba(255,77,109,0.3);color:var(--red);border-radius:2px">24/7 LIVE</span>
-          <span style="font-size:9px;color:var(--text-dim)">CME FUTURES GC</span>
+<!-- ═══ AI ANALYSIS ═══ -->
+<div id="page-ai" class="page">
+  <div class="panel" style="margin-bottom:8px">
+    <div class="panel-header"><div class="panel-title"><span class="accent">🤖</span> GEMINI AI — XAUUSD MARKET ANALYSIS</div><span class="api-status api-load" id="aiStatus">Waiting for key…</span></div>
+    <div style="padding:12px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <input id="geminiKeyInput" type="password" placeholder="Paste Gemini API Key (AIza...)"
+          style="flex:1;min-width:200px;background:var(--bg-card);border:1px solid var(--border);border-radius:3px;padding:9px 12px;color:var(--t1);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none">
+        <button onclick="window.setGeminiKey()" style="padding:9px 18px;background:var(--gold);border:none;border-radius:3px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:2px;color:#050810">ACTIVATE</button>
+        <button onclick="window.renderAIPanel()" style="padding:9px 14px;background:transparent;border:1px solid var(--border);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">↺ REFRESH</button>
+        <span id="geminiKeyStatus" style="font-size:9px;color:var(--green)"></span>
+      </div>
+      <div id="aiAnalysisResult" style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;min-height:220px;display:flex;align-items:center;justify-content:center">
+        <div style="text-align:center;color:var(--t3);padding:30px">
+          <div style="font-size:24px;margin-bottom:10px">🤖</div>
+          <div>Enter Gemini API Key above to enable AI market analysis</div>
         </div>
       </div>
-      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;background:#000">
-        <iframe
-          id="bookmapFrame"
-          src="https://www.youtube.com/embed/XIyocP-yr9E?autoplay=0&mute=1&rel=0&modestbranding=1&iv_load_policy=3&color=white"
-          style="position:absolute;top:0;left:0;width:100%;height:100%;border:none"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowfullscreen
-          loading="lazy"
-          title="Gold Bookmap Livestream">
-        </iframe>
-      </div>
-      <div style="padding:10px 12px;background:var(--bg-card);border-top:1px solid var(--border)">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-          <div style="text-align:center">
-            <div class="stat-label">Source</div>
-            <div class="stat-val" style="font-size:10px">CME Futures</div>
-          </div>
-          <div style="text-align:center">
-            <div class="stat-label">Instrument</div>
-            <div class="stat-val" style="font-size:10px">GC (Gold)</div>
-          </div>
-          <div style="text-align:center">
-            <div class="stat-label">Channel</div>
-            <div class="stat-val" style="font-size:10px">Daily Trading Tips</div>
-          </div>
-        </div>
-        <div style="margin-top:8px;padding:7px;background:rgba(240,192,64,0.05);border:1px solid rgba(240,192,64,0.15);border-radius:3px;font-size:9px;color:var(--text-secondary);line-height:1.5">
-          📊 Bookmap menampilkan <span style="color:var(--gold)">order book heatmap real-time</span> — cluster order besar, iceberg orders, dan level liquidity paling signifikan dari institutional traders di CME.
-        </div>
-      </div>
-    </div>
-
-    <!-- BLOOMBERG TV -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <span style="width:7px;height:7px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span>
-          <span class="accent">BLOOMBERG</span> TV · LIVE NEWS
-        </div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span style="font-size:9px;padding:2px 7px;background:rgba(255,77,109,0.15);border:1px solid rgba(255,77,109,0.3);color:var(--red);border-radius:2px">24/7 LIVE</span>
-          <span style="font-size:9px;color:var(--text-dim)">BLOOMBERG</span>
-        </div>
-      </div>
-      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;background:#000">
-        <iframe
-          id="bloombergFrame"
-          src="https://www.youtube.com/embed/live_stream?channel=UCIALMKvObZNtJ6AmdCLP7Lg&autoplay=0&mute=1&rel=0&modestbranding=1"
-          style="position:absolute;top:0;left:0;width:100%;height:100%;border:none"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-          allowfullscreen
-          loading="lazy"
-          title="Bloomberg TV Live">
-        </iframe>
-      </div>
-      <div style="padding:10px 12px;background:var(--bg-card);border-top:1px solid var(--border)">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-          <div style="text-align:center">
-            <div class="stat-label">Network</div>
-            <div class="stat-val" style="font-size:10px">Bloomberg</div>
-          </div>
-          <div style="text-align:center">
-            <div class="stat-label">Coverage</div>
-            <div class="stat-val" style="font-size:10px">Global Markets</div>
-          </div>
-          <div style="text-align:center">
-            <div class="stat-label">Focus</div>
-            <div class="stat-val" style="font-size:10px">Finance & Macro</div>
-          </div>
-        </div>
-        <div style="margin-top:8px;padding:7px;background:rgba(77,166,255,0.05);border:1px solid rgba(77,166,255,0.15);border-radius:3px;font-size:9px;color:var(--text-secondary);line-height:1.5">
-          📡 Bloomberg TV live — breaking news, Fed commentary, market analysis, dan wawancara eksklusif dengan fund managers & ekonom top dunia.
-        </div>
-      </div>
+      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Google Gemini 1.5 Flash · Key stored locally in browser</div>
     </div>
   </div>
-
-  <!-- BOTTOM ROW: Tips + Controls -->
-  <div class="grid-3">
-    <div class="panel col-span-2">
-      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CARA BACA BOOKMAP</div></div>
-      <div style="padding:12px;display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div>
-          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">WARNA HEATMAP</div>
-          <div class="indicator-row">
-            <span style="display:inline-block;width:12px;height:12px;background:#ff4d6d;border-radius:2px;flex-shrink:0;margin-right:6px"></span>
-            <span class="ind-name" style="width:auto">Merah/Jingga</span>
-            <span class="ind-val" style="color:var(--red)">Order JUAL besar (Ask)</span>
-          </div>
-          <div class="indicator-row">
-            <span style="display:inline-block;width:12px;height:12px;background:#22d98a;border-radius:2px;flex-shrink:0;margin-right:6px"></span>
-            <span class="ind-name" style="width:auto">Hijau/Cyan</span>
-            <span class="ind-val" style="color:var(--green)">Order BELI besar (Bid)</span>
-          </div>
-          <div class="indicator-row">
-            <span style="display:inline-block;width:12px;height:12px;background:#f0c040;border-radius:2px;flex-shrink:0;margin-right:6px"></span>
-            <span class="ind-name" style="width:auto">Kuning terang</span>
-            <span class="ind-val" style="color:var(--gold)">Cluster sangat tebal</span>
-          </div>
-          <div class="indicator-row">
-            <span style="display:inline-block;width:12px;height:12px;background:#1a2540;border-radius:2px;flex-shrink:0;margin-right:6px;border:1px solid var(--border)"></span>
-            <span class="ind-name" style="width:auto">Gelap/Kosong</span>
-            <span class="ind-val" style="color:var(--text-dim)">Area tanpa order</span>
-          </div>
-        </div>
-        <div>
-          <div style="font-size:9px;color:var(--text-dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">SINYAL TRADING</div>
-          <div class="indicator-row"><span class="ind-name">Wall Tebal</span><span class="ind-val" style="color:var(--text-secondary)">→ Support/Resistance kuat</span></div>
-          <div class="indicator-row"><span class="ind-name">Wall Hilang</span><span class="ind-val" style="color:var(--gold)">→ Spoofing! Hati-hati</span></div>
-          <div class="indicator-row"><span class="ind-name">Iceberg Order</span><span class="ind-val" style="color:var(--blue)">→ Big player tersembunyi</span></div>
-          <div class="indicator-row"><span class="ind-name">Void (kosong)</span><span class="ind-val" style="color:var(--green)">→ Price magnet / target</span></div>
-          <div class="indicator-row"><span class="ind-name">Footprint</span><span class="ind-val" style="color:var(--purple)">→ Volume setiap candle</span></div>
-        </div>
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> LIVE DATA FOR AI</div></div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:6px">
+        <div class="indicator-row"><span class="ind-name">XAU Price</span><span class="ind-val" id="aiXauPrice">—</span></div>
+        <div class="indicator-row"><span class="ind-name">Daily Change</span><span class="ind-val" id="aiXauChg">—</span></div>
+        <div class="indicator-row"><span class="ind-name">EUR/USD</span><span class="ind-val" id="aiEurUsd">—</span></div>
+        <div class="indicator-row"><span class="ind-name">RSI (14)</span><span class="ind-val" id="aiRsi">—</span></div>
+        <div class="indicator-row"><span class="ind-name">EMA 20</span><span class="ind-val" id="aiEma20">—</span></div>
+        <div class="indicator-row"><span class="ind-name">EMA 50</span><span class="ind-val" id="aiEma50">—</span></div>
       </div>
     </div>
-
     <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> STREAM INFO</div></div>
-      <div style="padding:12px;display:flex;flex-direction:column;gap:10px">
-        <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.2);border-radius:3px">
-          <div style="font-size:9px;color:var(--text-dim);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px">Gold Bookmap</div>
-          <div style="font-size:10px;color:var(--text-secondary);line-height:1.5">Data dari <span style="color:var(--gold)">CME GC Futures</span> — bukan CFD. Spread CFD vs Futures biasanya <span style="color:var(--red)">3–8 USD/oz</span>. Gunakan sebagai referensi institutional flow.</div>
-        </div>
-        <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(77,166,255,0.2);border-radius:3px">
-          <div style="font-size:9px;color:var(--text-dim);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px">Bloomberg TV</div>
-          <div style="font-size:10px;color:var(--text-secondary);line-height:1.5">Pantau <span style="color:var(--blue)">Fed speak, macro data release,</span> dan breaking news yang bisa langsung menggerakkan harga gold secara signifikan.</div>
-        </div>
-        <div style="padding:10px;background:rgba(240,192,64,0.05);border:1px solid rgba(240,192,64,0.2);border-radius:3px;text-align:center">
-          <div style="font-size:9px;color:var(--text-secondary);margin-bottom:4px">PRO TIP</div>
-          <div style="font-size:10px;color:var(--gold);line-height:1.5">Gunakan Bookmap + Chart DFXAi Terminal secara bersamaan untuk konfirmasi entry yang lebih akurat</div>
-        </div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CARA DAPAT GEMINI API KEY (GRATIS)</div></div>
+      <div style="padding:14px;font-size:10px;color:var(--t2);line-height:1.9">
+        1. Buka <span style="color:var(--blue)">aistudio.google.com</span><br>
+        2. Login dengan akun Google<br>
+        3. Klik <span style="color:var(--gold)">"Get API Key"</span> → "Create API key"<br>
+        4. Copy key yang dimulai dengan <span style="color:var(--green)">AIza...</span><br>
+        5. Paste di atas → klik ACTIVATE<br><br>
+        <span style="color:var(--green)">✓ Gratis · 15 req/menit · 1 juta tokens/hari</span><br>
+        <span style="color:var(--t3)">Key disimpan di browser lokal, aman</span>
       </div>
     </div>
   </div>
@@ -948,11 +531,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 </div><!-- /main-content -->
 
-  <!-- CDN Libraries -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-  <!-- App Scripts: order matters! -->
-  <script src="app.js"></script>
-  <script src="auth.js"></script>
+<!-- SCRIPTS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="app.js"></script>
+<script src="auth.js"></script>
 </body>
 </html>
