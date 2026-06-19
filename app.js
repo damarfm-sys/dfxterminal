@@ -14,18 +14,35 @@ var charts = {};
 var PROXIES = [
   function(u){ return 'https://corsproxy.io/?'+encodeURIComponent(u); },
   function(u){ return 'https://api.allorigins.win/raw?url='+encodeURIComponent(u); },
+  function(u){ return 'https://thingproxy.freeboard.io/fetch/'+u; },
   function(u){ return u; }
 ];
 var pIdx = 0;
 
 async function proxyFetch(url) {
-  for (var i=0; i<PROXIES.length; i++) {
-    var idx = (pIdx+i) % PROXIES.length;
+  // Race 2 proxy pertama, siapa cepat dia menang
+  var raceResult = await Promise.any(
+    [0, 1].map(function(i) {
+      var idx = (pIdx + i) % PROXIES.length;
+      return fetch(PROXIES[idx](url), {signal: AbortSignal.timeout(4000)})
+        .then(function(r) {
+          if (!r.ok) throw new Error('not ok');
+          pIdx = idx;
+          return r.json();
+        });
+    })
+  ).catch(function() { return null; });
+
+  if (raceResult) return raceResult;
+
+  // Fallback ke proxy lainnya
+  for (var i=2; i<PROXIES.length; i++) {
+    var idx2 = (pIdx+i) % PROXIES.length;
     try {
-      var r = await fetch(PROXIES[idx](url), {signal: AbortSignal.timeout(8000)});
-      if (!r.ok) continue;
-      var d = await r.json();
-      pIdx = idx;
+      var r2 = await fetch(PROXIES[idx2](url), {signal: AbortSignal.timeout(4000)});
+      if (!r2.ok) continue;
+      var d = await r2.json();
+      pIdx = idx2;
       return d;
     } catch(e) { continue; }
   }
@@ -112,13 +129,13 @@ async function yahooQuote(sym) {
 // ── FETCH ALL QUOTES ──
 async function fetchQuotes() {
   var symbols = {
-    'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X',
+    'XAU/USD':'GC=F','XAG/USD':'SI=F','DXY':'DX-Y.NYB',
     'GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','US10Y':'^TNX'
   };
   var tickerMap = {
     'XAU/USD':{p:'t-xau',c:'t-xau-chg',dec:2},
     'XAG/USD':{p:'t-xag',c:'t-xag-chg',dec:2},
-    'EUR/USD':{p:'t-eur',c:'t-eur-chg',dec:4},
+    'DXY':{p:'t-eur',c:'t-eur-chg',dec:2},
     'GBP/USD':{p:'t-gbp',c:'t-gbp-chg',dec:4},
     'USD/JPY':{p:'t-jpy',c:'t-jpy-chg',dec:2},
     'US10Y':{p:'t-us10',c:'t-us10-chg',dec:3}
@@ -142,7 +159,7 @@ async function fetchQuotes() {
     });
 
     if (results['XAU/USD']) { state.xau=results['XAU/USD']; updateXAU(); }
-    if (results['EUR/USD']) { state.dxy=results['EUR/USD']; updateDXY(); }
+    if (results['DXY']) { state.dxy=results['DXY']; updateDXY(); }
 
     if (anySuccess) {
       setStatus('apiStatusBadge','ok','● LIVE');
@@ -200,7 +217,7 @@ function updateDXY() {
 
 function updateDXYIndicator() {
   var d=state.dxy; if (!d||!d.pct&&d.pct!==0) return;
-  // EUR/USD inverse = DXY proxy
+  // DXY live index
   var pct=d.pct||0; // EUR up = DXY down
   var isWeak=pct>0.15, isStrong=pct<-0.15;
   var color=isWeak?'var(--green)':isStrong?'var(--red)':'var(--gold)';
@@ -243,7 +260,7 @@ function seriesLabels(series) {
 // ── FETCH SERIES (Yahoo Finance OHLC) ──
 async function fetchSeries(sym, interval, size) {
   size = size||80;
-  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X','DXY':'EURUSD=X'};
+  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','DXY':'DX-Y.NYB'};
   var tvToYf={'1min':'2m','5min':'5m','15min':'15m','30min':'30m','1h':'1h','4h':'1h','1day':'1d'};
   var yfRange={'2m':'1d','5m':'5d','15m':'5d','30m':'5d','1h':'1mo','1d':'6mo'};
   var yfi=tvToYf[interval]||'1h';
@@ -346,13 +363,13 @@ async function loadMainChart(interval) {
   if(s.length){ updateTechnicals(s); buildLineChart('xauMainChart','rgb(240,192,64)',s.map(function(v){return v.c;}),seriesLabels(s),260); }
 }
 async function loadDxyChart() {
-  var s=await fetchSeries('EUR/USD','1h',60);
+  var s=await fetchSeries('DXY','1h',60);
   if(s.length) buildLineChart('dxyMiniChart','rgb(77,166,255)',s.map(function(v){return v.c;}),seriesLabels(s),80);
 }
 async function loadH1Charts() {
   var xs=await fetchSeries('XAU/USD','1h',60);
   if(xs.length){ buildLineChart('xauH1Chart','rgb(240,192,64)',xs.map(function(v){return v.c;}),seriesLabels(xs),300); updateTechnicals(xs); }
-  var ds=await fetchSeries('EUR/USD','1h',60);
+  var ds=await fetchSeries('DXY','1h',60);
   if(ds.length) buildLineChart('dxyH1Chart','rgb(77,166,255)',ds.map(function(v){return v.c;}),seriesLabels(ds),300);
 }
 
@@ -426,7 +443,7 @@ window.renderAIPanel = async function() {
   var ema20=calcEMA(closes,20), ema50=calcEMA(closes,50), rsi=calcRSI(closes,14), atr=calcATR(s,14);
   var prompt='You are a professional XAUUSD (Gold) trader and analyst. Analyze the following real-time market data and provide a concise trading analysis in 5 bullet points:\n\n'+
     'XAUUSD Price: '+fmt(x.price)+'\nDaily Change: '+fmtPct(x.pct)+'\nOpen: '+fmt(x.open)+' | High: '+fmt(x.high)+' | Low: '+fmt(x.low)+'\n'+
-    'EUR/USD (DXY proxy): '+fmt(d.price,4)+' ('+fmtPct(d.pct)+')\n'+
+    'DXY: '+fmt(d.price,2)+' ('+fmtPct(d.pct)+')\n'+
     'RSI(14): '+(rsi?rsi.toFixed(1):'N/A')+'\nEMA20: '+fmt(ema20)+' | EMA50: '+fmt(ema50)+'\nATR(14): '+fmt(atr,1)+'\n'+
     'Price vs EMA20: '+(ema20&&x.price>ema20?'ABOVE (bullish)':'BELOW (bearish)')+'\n'+
     'Price vs EMA50: '+(ema50&&x.price>ema50?'ABOVE (bullish)':'BELOW (bearish)')+'\n\n'+
