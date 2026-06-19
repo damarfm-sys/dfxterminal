@@ -7,6 +7,34 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<style>
+/* ── TICKER SCROLLING ── */
+.ticker-strip {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  min-width: 0;
+}
+.ticker-scroll-wrapper {
+  overflow: hidden;
+  width: 100%;
+}
+.ticker-scroll-track {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  animation: tickerScroll 28s linear infinite;
+  width: max-content;
+  will-change: transform;
+}
+.ticker-scroll-track:hover {
+  animation-play-state: paused;
+}
+@keyframes tickerScroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+</style>
 </head>
 <body>
 
@@ -55,12 +83,23 @@
 <div class="topbar">
   <div class="logo"><div class="logo-dot"></div>DFXAi<span style="color:var(--t2);font-weight:400"> TERMINAL</span></div>
   <div class="ticker-strip">
-    <div class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau">—</span><span class="ticker-chg" id="t-xau-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price" id="t-xag">—</span><span class="ticker-chg" id="t-xag-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">EUR/USD</span><span class="ticker-price" id="t-eur">—</span><span class="ticker-chg" id="t-eur-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price" id="t-gbp">—</span><span class="ticker-chg" id="t-gbp-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price" id="t-jpy">—</span><span class="ticker-chg" id="t-jpy-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10">—</span><span class="ticker-chg" id="t-us10-chg">—</span></div>
+    <div class="ticker-scroll-wrapper">
+      <div class="ticker-scroll-track" id="tickerTrack">
+        <div class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau">—</span><span class="ticker-chg" id="t-xau-chg">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price" id="t-xag">—</span><span class="ticker-chg" id="t-xag-chg">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">DXY</span><span class="ticker-price" id="t-eur">—</span><span class="ticker-chg" id="t-eur-chg">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price" id="t-gbp">—</span><span class="ticker-chg" id="t-gbp-chg">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price" id="t-jpy">—</span><span class="ticker-chg" id="t-jpy-chg">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10">—</span><span class="ticker-chg" id="t-us10-chg">—</span></div>
+        <!-- Duplicate untuk seamless loop -->
+        <div class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price ticker-clone" id="t-xau-2">—</span><span class="ticker-chg ticker-clone" id="t-xau-chg-2">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price ticker-clone" id="t-xag-2">—</span><span class="ticker-chg ticker-clone" id="t-xag-chg-2">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">DXY</span><span class="ticker-price ticker-clone" id="t-eur-2">—</span><span class="ticker-chg ticker-clone" id="t-eur-chg-2">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price ticker-clone" id="t-gbp-2">—</span><span class="ticker-chg ticker-clone" id="t-gbp-chg-2">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price ticker-clone" id="t-jpy-2">—</span><span class="ticker-chg ticker-clone" id="t-jpy-chg-2">—</span></div>
+        <div class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price ticker-clone" id="t-us10-2">—</span><span class="ticker-chg ticker-clone" id="t-us10-chg-2">—</span></div>
+      </div>
+    </div>
   </div>
   <div class="topbar-right">
     <button id="userMenuBtn" onclick="window.toggleUserMenu()"><span id="userEmailDisplay">—</span> ▾</button>
@@ -499,7 +538,7 @@
           <div>Enter Gemini API Key above to enable AI market analysis</div>
         </div>
       </div>
-      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Google Gemini 1.5 Flash · Key stored locally in browser</div>
+      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Google Gemini 2.5 Flash · Key stored locally in browser</div>
     </div>
   </div>
   <div class="grid-2">
@@ -536,5 +575,22 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="app.js"></script>
 <script src="auth.js"></script>
+<!-- Sync clone ticker values -->
+<script>
+(function() {
+  var ids = ['t-xau','t-xau-chg','t-xag','t-xag-chg','t-eur','t-eur-chg','t-gbp','t-gbp-chg','t-jpy','t-jpy-chg','t-us10','t-us10-chg'];
+  function syncClones() {
+    ids.forEach(function(id) {
+      var src = document.getElementById(id);
+      var clone = document.getElementById(id + '-2');
+      if (src && clone) {
+        clone.textContent = src.textContent;
+        clone.className = src.className;
+      }
+    });
+  }
+  setInterval(syncClones, 2000);
+})();
+</script>
 </body>
 </html>
