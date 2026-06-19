@@ -432,7 +432,7 @@ window.renderAIPanel = async function() {
     'Price vs EMA50: '+(ema50&&x.price>ema50?'ABOVE (bullish)':'BELOW (bearish)')+'\n\n'+
     'Provide: 1) Market Bias (Bullish/Bearish/Neutral) 2) Key levels to watch 3) Entry suggestion 4) Risk factors 5) Short-term outlook. Be concise and direct.';
   try {
-    var url='https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='+key;
+    var url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+key;
     var r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:600}})});
     var data=await r.json();
