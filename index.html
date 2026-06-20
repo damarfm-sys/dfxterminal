@@ -7,34 +7,6 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<style>
-/* ── TICKER SCROLLING ── */
-.ticker-strip {
-  flex: 1;
-  overflow: hidden;
-  position: relative;
-  min-width: 0;
-}
-.ticker-scroll-wrapper {
-  overflow: hidden;
-  width: 100%;
-}
-.ticker-scroll-track {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  animation: tickerScroll 28s linear infinite;
-  width: max-content;
-  will-change: transform;
-}
-.ticker-scroll-track:hover {
-  animation-play-state: paused;
-}
-@keyframes tickerScroll {
-  0%   { transform: translateX(0); }
-  100% { transform: translateX(-50%); }
-}
-</style>
 </head>
 <body>
 
@@ -83,23 +55,12 @@
 <div class="topbar">
   <div class="logo"><div class="logo-dot"></div>DFXAi<span style="color:var(--t2);font-weight:400"> TERMINAL</span></div>
   <div class="ticker-strip">
-    <div class="ticker-scroll-wrapper">
-      <div class="ticker-scroll-track" id="tickerTrack">
-        <div class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau">—</span><span class="ticker-chg" id="t-xau-chg">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price" id="t-xag">—</span><span class="ticker-chg" id="t-xag-chg">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">DXY</span><span class="ticker-price" id="t-eur">—</span><span class="ticker-chg" id="t-eur-chg">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price" id="t-gbp">—</span><span class="ticker-chg" id="t-gbp-chg">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price" id="t-jpy">—</span><span class="ticker-chg" id="t-jpy-chg">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10">—</span><span class="ticker-chg" id="t-us10-chg">—</span></div>
-        <!-- Duplicate untuk seamless loop -->
-        <div class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price ticker-clone" id="t-xau-2">—</span><span class="ticker-chg ticker-clone" id="t-xau-chg-2">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price ticker-clone" id="t-xag-2">—</span><span class="ticker-chg ticker-clone" id="t-xag-chg-2">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">DXY</span><span class="ticker-price ticker-clone" id="t-eur-2">—</span><span class="ticker-chg ticker-clone" id="t-eur-chg-2">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price ticker-clone" id="t-gbp-2">—</span><span class="ticker-chg ticker-clone" id="t-gbp-chg-2">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price ticker-clone" id="t-jpy-2">—</span><span class="ticker-chg ticker-clone" id="t-jpy-chg-2">—</span></div>
-        <div class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price ticker-clone" id="t-us10-2">—</span><span class="ticker-chg ticker-clone" id="t-us10-chg-2">—</span></div>
-      </div>
-    </div>
+    <div class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau">—</span><span class="ticker-chg" id="t-xau-chg">—</span></div>
+    <div class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price" id="t-xag">—</span><span class="ticker-chg" id="t-xag-chg">—</span></div>
+    <div class="ticker-item"><span class="ticker-sym">EUR/USD</span><span class="ticker-price" id="t-eur">—</span><span class="ticker-chg" id="t-eur-chg">—</span></div>
+    <div class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price" id="t-gbp">—</span><span class="ticker-chg" id="t-gbp-chg">—</span></div>
+    <div class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price" id="t-jpy">—</span><span class="ticker-chg" id="t-jpy-chg">—</span></div>
+    <div class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10">—</span><span class="ticker-chg" id="t-us10-chg">—</span></div>
   </div>
   <div class="topbar-right">
     <button id="userMenuBtn" onclick="window.toggleUserMenu()"><span id="userEmailDisplay">—</span> ▾</button>
@@ -454,37 +415,66 @@
 <!-- ═══ GEOPOLITICAL ═══ -->
 <div id="page-geopolitical" class="page">
   <div class="grid-2">
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> ACTIVE GEOPOLITICAL RISKS</div></div>
-      <div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇷🇺🇺🇦 Russia-Ukraine War</span></div><div class="geo-desc">NATO military aid ongoing. Ceasefire repeatedly failing. Drone escalation. Nuclear risk elevated.</div><div class="geo-impact"><span style="color:var(--green)">▲ STRONGLY BULLISH for Gold</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇺🇸🇨🇳 US-China Trade War</span></div><div class="geo-desc">Tariffs 145% vs 125%. Tech export controls expanding. South China Sea military buildup.</div><div class="geo-impact"><span style="color:var(--green)">▲ BULLISH for Gold</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇱🇵🇸 Middle East Conflict</span></div><div class="geo-desc">Gaza ongoing. Red Sea shipping disruptions. Iran-Israel tension elevated. Oil supply risk.</div><div class="geo-impact"><span style="color:var(--gold)">◆ MODERATELY BULLISH</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇳🇵🇰 India-Pakistan Standoff</span></div><div class="geo-desc">Cross-border shelling increasing. Military reserves mobilized. Both nuclear-armed states.</div><div class="geo-impact"><span style="color:var(--gold)">▲ BULLISH on escalation</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region monitor">MONITOR</span><span class="geo-title">🇹🇼 Taiwan Strait</span></div><div class="geo-desc">PLA exercises continue. TSMC supply chain risk. US carrier deployments in response.</div><div class="geo-impact"><span style="color:var(--gold)">◆ LATENT BULLISH</span></div></div>
+    <!-- KIRI: Live News Feed -->
+    <div class="panel" style="display:flex;flex-direction:column;gap:0">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="panel-title"><span class="accent">◈</span> LIVE GEOPOLITICAL NEWS</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="geoNewsStatus" style="font-size:9px;color:var(--t3)">Loading...</span>
+          <button onclick="window.refreshGeoNews()" style="font-size:9px;padding:3px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">↻ REFRESH</button>
+        </div>
+      </div>
+      <div id="geoNewsFeed" style="flex:1;overflow-y:auto;max-height:420px">
+        <div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Fetching news...</div>
       </div>
     </div>
-    <div>
-      <div class="panel" style="margin-bottom:8px">
+
+    <!-- KANAN: AI Summary + Risk Matrix + CB Chart -->
+    <div style="display:flex;flex-direction:column;gap:8px">
+
+      <!-- AI Geo Summary -->
+      <div class="panel">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="panel-title"><span class="accent">◈</span> AI GEOPOLITICAL ANALYSIS</div>
+          <button onclick="window.runGeoAI()" id="geoAiBtn" style="font-size:9px;padding:3px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">⚡ ANALYZE</button>
+        </div>
+        <div id="geoAiOut" style="padding:10px;font-size:10px;line-height:1.7;color:var(--t2);min-height:80px">
+          <span style="color:var(--t3)">Click ANALYZE to get AI summary of current geopolitical impact on gold.</span>
+        </div>
+      </div>
+
+      <!-- Risk Matrix -->
+      <div class="panel">
         <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> RISK MATRIX</div></div>
-        <div style="padding:12px">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.25);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--t2)">GEO RISK INDEX</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--red)">74</div><div style="font-size:9px;color:var(--red)">HIGH RISK</div></div>
-            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--t2)">SAFE HAVEN</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--green)">+</div><div style="font-size:9px;color:var(--green)">ACTIVE</div></div>
+        <div style="padding:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.25);border-radius:3px;text-align:center">
+              <div style="font-size:9px;color:var(--t2)">GEO RISK INDEX</div>
+              <div id="geoRiskScore" style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--red)">—</div>
+              <div id="geoRiskLabel" style="font-size:9px;color:var(--red)">LOADING</div>
+            </div>
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center">
+              <div style="font-size:9px;color:var(--t2)">SAFE HAVEN</div>
+              <div id="geoSafeHaven" style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--green)">+</div>
+              <div id="geoSafeLabel" style="font-size:9px;color:var(--green)">ACTIVE</div>
+            </div>
           </div>
-          <table class="data-table"><tr><th>Region</th><th>Risk</th><th>Prob.</th><th>Gold</th></tr>
-            <tr><td>E. Europe</td><td style="color:var(--red)">Critical</td><td>HIGH</td><td class="up">+++ BUY</td></tr>
-            <tr><td>US-China</td><td style="color:var(--red)">Critical</td><td>HIGH</td><td class="up">++ BUY</td></tr>
-            <tr><td>Middle East</td><td style="color:var(--gold)">Elevated</td><td>MED</td><td class="up">+ BUY</td></tr>
-            <tr><td>S. Asia</td><td style="color:var(--gold)">Elevated</td><td>MED</td><td class="up">++ BUY</td></tr>
-            <tr><td>E. Asia</td><td style="color:var(--blue)">Moderate</td><td>LOW</td><td style="color:var(--gold)">◆ WATCH</td></tr>
+          <table class="data-table" id="geoRiskTable">
+            <tr><th>Region</th><th>Risk</th><th>Trend</th><th>Gold</th></tr>
+            <tr><td>E. Europe</td><td style="color:var(--red)">Critical</td><td>→</td><td class="up">+++ BUY</td></tr>
+            <tr><td>US-China</td><td style="color:var(--red)">Critical</td><td>↑</td><td class="up">++ BUY</td></tr>
+            <tr><td>Middle East</td><td style="color:var(--gold)">Elevated</td><td>→</td><td class="up">+ BUY</td></tr>
+            <tr><td>S. Asia</td><td style="color:var(--gold)">Elevated</td><td>↓</td><td class="up">+ BUY</td></tr>
+            <tr><td>E. Asia</td><td style="color:var(--blue)">Moderate</td><td>→</td><td style="color:var(--gold)">◆ WATCH</td></tr>
           </table>
         </div>
       </div>
+
+      <!-- CB Chart -->
       <div class="panel">
         <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CENTRAL BANK GOLD BUYING (tonnes)</div></div>
-        <div style="padding:12px">
-          <div style="height:150px"><canvas id="cbChart"></canvas></div>
+        <div style="padding:10px">
+          <div style="height:120px"><canvas id="cbChart"></canvas></div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px">
             <div style="text-align:center"><div class="stat-label">China PBoC</div><div class="stat-val up">+8T</div></div>
             <div style="text-align:center"><div class="stat-label">India RBI</div><div class="stat-val up">+6.5T</div></div>
@@ -492,6 +482,7 @@
           </div>
         </div>
       </div>
+
     </div>
   </div>
 </div>
@@ -538,7 +529,7 @@
           <div>Enter Gemini API Key above to enable AI market analysis</div>
         </div>
       </div>
-      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Google Gemini 2.5 Flash · Key stored locally in browser</div>
+      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Google Gemini 1.5 Flash · Key stored locally in browser</div>
     </div>
   </div>
   <div class="grid-2">
@@ -575,21 +566,37 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="app.js"></script>
 <script src="auth.js"></script>
-<!-- Sync clone ticker values -->
+<style>
+.geo-news-item{padding:10px 12px;border-bottom:1px solid var(--border);transition:background .2s}
+.geo-news-item:hover{background:rgba(240,192,64,.04)}
+.geo-news-item:last-child{border-bottom:none}
+.geo-news-tag{display:inline-block;font-size:8px;padding:2px 6px;border-radius:2px;font-weight:700;letter-spacing:1px;margin-right:6px}
+.geo-news-tag.war{background:rgba(255,77,109,.15);color:var(--red);border:1px solid rgba(255,77,109,.3)}
+.geo-news-tag.trade{background:rgba(240,192,64,.12);color:var(--gold);border:1px solid rgba(240,192,64,.3)}
+.geo-news-tag.energy{background:rgba(78,169,255,.12);color:var(--blue);border:1px solid rgba(78,169,255,.3)}
+.geo-news-tag.macro{background:rgba(34,217,138,.1);color:var(--green);border:1px solid rgba(34,217,138,.3)}
+.geo-news-tag.default{background:rgba(180,180,180,.1);color:var(--t2);border:1px solid var(--border)}
+.geo-news-title{font-size:10px;color:var(--text);line-height:1.4;margin:4px 0 3px}
+.geo-news-meta{font-size:9px;color:var(--t3)}
+.geo-news-impact{font-size:9px;margin-top:4px}
+.ticker-strip{flex:1;overflow:hidden;position:relative;min-width:0}
+.ticker-scroll-wrapper{overflow:hidden;width:100%}
+.ticker-scroll-track{display:flex;align-items:center;animation:tickerScroll 28s linear infinite;width:max-content;will-change:transform}
+.ticker-scroll-track:hover{animation-play-state:paused}
+@keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+</style>
 <script>
-(function() {
-  var ids = ['t-xau','t-xau-chg','t-xag','t-xag-chg','t-eur','t-eur-chg','t-gbp','t-gbp-chg','t-jpy','t-jpy-chg','t-us10','t-us10-chg'];
-  function syncClones() {
-    ids.forEach(function(id) {
-      var src = document.getElementById(id);
-      var clone = document.getElementById(id + '-2');
-      if (src && clone) {
-        clone.textContent = src.textContent;
-        clone.className = src.className;
-      }
+// ── TICKER CLONE SYNC ──
+(function(){
+  var ids=['t-xau','t-xau-chg','t-xag','t-xag-chg','t-eur','t-eur-chg','t-gbp','t-gbp-chg','t-jpy','t-jpy-chg','t-us10','t-us10-chg'];
+  function syncClones(){
+    ids.forEach(function(id){
+      var src=document.getElementById(id);
+      var clone=document.getElementById(id+'-2');
+      if(src&&clone){clone.textContent=src.textContent;clone.className=src.className;}
     });
   }
-  setInterval(syncClones, 2000);
+  setInterval(syncClones,2000);
 })();
 </script>
 </body>
