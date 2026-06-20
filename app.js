@@ -337,7 +337,163 @@ function computeSignal() {
   ['dashSignalBox','daySignalBox'].forEach(function(id){var e=document.getElementById(id);if(e)e.className='signal-box '+(isBull?'buy':'sell');});
   ['signalDir','sigDirFull','swingDir'].forEach(function(id){var e=document.getElementById(id);if(e)e.className='signal-label '+(isBull?'buy':'sell');});
   setStatus('signalStatus','ok','● LIVE');
+  saveSignalToHistory({dir:isBull?'LONG':'SHORT',entry:elo+' – '+ehi,tp1:tp1,tp2:tp2,sl:sl,rr:rr,conf:conf+'%',date:new Date().toISOString()});
 }
+
+// ── SIGNAL HISTORY ──
+var SIG_KEY = 'dfxai_sig_history';
+
+function loadSignalHistory() {
+  try { return JSON.parse(localStorage.getItem(SIG_KEY)) || []; } catch(e) { return []; }
+}
+function saveSignalHistory(arr) {
+  localStorage.setItem(SIG_KEY, JSON.stringify(arr));
+}
+function saveSignalToHistory(sig) {
+  var arr = loadSignalHistory();
+  var now = Date.now();
+  var last = arr[0];
+  if (last && last.dir === sig.dir && last.entry === sig.entry && now - new Date(last.date).getTime() < 300000) return;
+  sig.id = now;
+  sig.result = 'open';
+  arr.unshift(sig);
+  if (arr.length > 100) arr = arr.slice(0, 100);
+  saveSignalHistory(arr);
+  renderSignalHistory();
+}
+function renderSignalHistory() {
+  var arr = loadSignalHistory();
+  var tbody = document.getElementById('signalHistoryBody');
+  var countEl = document.getElementById('histCount');
+  var picker = document.getElementById('sigPickHistory');
+  if (countEl) countEl.textContent = arr.length + ' signals';
+  if (picker) {
+    var openSigs = arr.filter(function(s){ return s.result === 'open'; });
+    picker.innerHTML = '<option value="">— Pilih signal dari riwayat —</option>' +
+      openSigs.map(function(s){
+        var d = new Date(s.date);
+        var label = d.toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) + ' ' +
+                    d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) +
+                    ' · ' + s.dir + ' · ' + s.entry;
+        return '<option value="'+s.id+'">'+label+'</option>';
+      }).join('');
+  }
+  if (!tbody) return;
+  if (!arr.length) {
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--t3);padding:20px">Belum ada riwayat. Signal live akan otomatis tersimpan.</td></tr>';
+    updateWinrateStats(arr);
+    return;
+  }
+  tbody.innerHTML = arr.map(function(s) {
+    var d = new Date(s.date);
+    var dateStr = d.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) + ' ' +
+                  d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
+    var dirClass = s.dir === 'LONG' ? 'up' : 'down';
+    var dirIcon = s.dir === 'LONG' ? '▲' : '▼';
+    var resultHtml = '';
+    if (s.result === 'open') resultHtml = '<span style="color:var(--gold);font-size:9px;letter-spacing:1px">● OPEN</span>';
+    else if (s.result === 'tp1') resultHtml = '<span style="color:var(--green);font-size:9px;letter-spacing:1px">✓ TP1</span>';
+    else if (s.result === 'tp2') resultHtml = '<span style="color:var(--green);font-size:9px;font-weight:700;letter-spacing:1px">✓✓ TP2</span>';
+    else if (s.result === 'sl') resultHtml = '<span style="color:var(--red);font-size:9px;letter-spacing:1px">✗ SL</span>';
+    var aksiHtml = s.result === 'open'
+      ? '<span onclick="window.deleteSignal('+s.id+')" style="color:var(--t3);cursor:pointer;font-size:10px" title="Hapus">🗑</span>'
+      : '<span onclick="window.resetSignalResult('+s.id+')" style="color:var(--t3);cursor:pointer;font-size:10px" title="Reset ke Open">↩</span>';
+    return '<tr>' +
+      '<td style="font-size:9px;color:var(--t3)">'+dateStr+'</td>' +
+      '<td><span class="'+dirClass+'" style="font-weight:700;letter-spacing:1px">'+dirIcon+' '+s.dir+'</span></td>' +
+      '<td style="color:var(--t1)">'+s.entry+'</td>' +
+      '<td class="up">'+s.tp1+'</td>' +
+      '<td class="up">'+s.tp2+'</td>' +
+      '<td class="down">'+s.sl+'</td>' +
+      '<td style="color:var(--gold)">'+s.rr+'</td>' +
+      '<td style="color:var(--blue)">'+s.conf+'</td>' +
+      '<td>'+resultHtml+'</td>' +
+      '<td>'+aksiHtml+'</td>' +
+    '</tr>';
+  }).join('');
+  updateWinrateStats(arr);
+}
+function updateWinrateStats(arr) {
+  var closed = arr.filter(function(s){ return s.result !== 'open'; });
+  var wins = arr.filter(function(s){ return s.result === 'tp1' || s.result === 'tp2'; });
+  var losses = arr.filter(function(s){ return s.result === 'sl'; });
+  var total = closed.length;
+  var winPct = total > 0 ? Math.round(wins.length / total * 100) : null;
+  var longs = closed.filter(function(s){ return s.dir === 'LONG'; });
+  var longWins = longs.filter(function(s){ return s.result === 'tp1' || s.result === 'tp2'; });
+  var shorts = closed.filter(function(s){ return s.dir === 'SHORT'; });
+  var shortWins = shorts.filter(function(s){ return s.result === 'tp1' || s.result === 'tp2'; });
+  var rrVals = closed.filter(function(s){ return s.rr; }).map(function(s){
+    var m = s.rr.match(/1:([\d.]+)/); return m ? parseFloat(m[1]) : null;
+  }).filter(Boolean);
+  var avgRR = rrVals.length ? (rrVals.reduce(function(a,b){return a+b;},0)/rrVals.length).toFixed(1) : null;
+  setEl('wrTotal', arr.length);
+  setEl('wrWin', wins.length);
+  setEl('wrLoss', losses.length);
+  setEl('wrPct', winPct !== null ? winPct+'%' : '—');
+  setEl('wrPctBar', winPct !== null ? winPct+'%' : '—');
+  setEl('wrAvgRR', avgRR ? '1:'+avgRR : '—');
+  setEl('wrLongWR', longs.length ? Math.round(longWins.length/longs.length*100)+'%' : '—');
+  setEl('wrShortWR', shorts.length ? Math.round(shortWins.length/shorts.length*100)+'%' : '—');
+  var bar = document.getElementById('wrBar');
+  if (bar) {
+    bar.style.width = (winPct || 0)+'%';
+    bar.style.background = winPct >= 60 ? 'var(--green)' : winPct >= 40 ? 'var(--gold)' : 'var(--red)';
+  }
+  var wrEl = document.getElementById('wrPct');
+  if (wrEl && winPct !== null) wrEl.style.color = winPct >= 60 ? 'var(--green)' : winPct >= 40 ? 'var(--gold)' : 'var(--red)';
+}
+window.markSignal = function(result) {
+  var picker = document.getElementById('sigPickHistory');
+  var feedback = document.getElementById('markFeedback');
+  if (!picker || !picker.value) {
+    if (feedback) { feedback.textContent = '⚠ Pilih signal dulu dari dropdown.'; feedback.style.color='var(--red)'; }
+    return;
+  }
+  var id = parseInt(picker.value);
+  var arr = loadSignalHistory();
+  var idx = arr.findIndex(function(s){ return s.id === id; });
+  if (idx === -1) { if (feedback) { feedback.textContent = '⚠ Signal tidak ditemukan.'; feedback.style.color='var(--red)'; } return; }
+  arr[idx].result = result;
+  saveSignalHistory(arr);
+  renderSignalHistory();
+  var labels = {tp1:'✓ TP1 Hit ditandai!', tp2:'✓✓ TP2 Hit ditandai!', sl:'✗ SL Hit ditandai.'};
+  var colors = {tp1:'var(--green)', tp2:'var(--green)', sl:'var(--red)'};
+  if (feedback) { feedback.textContent = labels[result]; feedback.style.color = colors[result]; }
+  setTimeout(function(){ if (feedback) feedback.textContent = ''; }, 3000);
+};
+window.deleteSignal = function(id) {
+  var arr = loadSignalHistory().filter(function(s){ return s.id !== id; });
+  saveSignalHistory(arr);
+  renderSignalHistory();
+};
+window.resetSignalResult = function(id) {
+  var arr = loadSignalHistory();
+  var idx = arr.findIndex(function(s){ return s.id === id; });
+  if (idx !== -1) { arr[idx].result = 'open'; saveSignalHistory(arr); renderSignalHistory(); }
+};
+window.clearSignalHistory = function() {
+  if (!confirm('Hapus semua riwayat signal? Tindakan ini tidak bisa dibatalkan.')) return;
+  localStorage.removeItem(SIG_KEY);
+  renderSignalHistory();
+};
+window.addManualSignal = function() {
+  var dir = document.getElementById('manualDir');
+  var result = document.getElementById('manualResult');
+  var entry = document.getElementById('manualEntry');
+  if (!dir || !result || !entry) return;
+  var entryVal = entry.value.trim();
+  if (!entryVal) { alert('Masukkan entry price dulu.'); return; }
+  var sig = {id:Date.now(),dir:dir.value,entry:entryVal,tp1:'—',tp2:'—',sl:'—',rr:'—',conf:'—',date:new Date().toISOString(),result:result.value};
+  var arr = loadSignalHistory();
+  arr.unshift(sig);
+  saveSignalHistory(arr);
+  renderSignalHistory();
+  entry.value = '';
+  var fb = document.getElementById('markFeedback');
+  if (fb) { fb.textContent = '✓ Signal manual ditambahkan.'; fb.style.color='var(--green)'; }
+  setTimeout(function(){ if (fb) fb.textContent = ''; }, 3000);
+};
 
 // ── LOAD CHARTS ──
 async function loadMainChart(interval) {
@@ -379,7 +535,7 @@ window.switchPage = function(page, el) {
   if(el) el.classList.add('active');
   if(page==='charts') loadH1Charts();
   if(page==='cot') initCOTCharts();
-  if(page==='geopolitical') { initCBChart(); window.refreshGeoNews(); }
+  if(page==='geopolitical') initCBChart();
   if(page==='ai') renderAIPanel();
 };
 
@@ -469,209 +625,11 @@ async function fetchNews() {
   }).join('');
 }
 
-// ── GEOPOLITICAL NEWS + AI ──
-var geoNewsCached = [];
-var geoNewsLastFetch = 0;
-
-var GEO_RSS_SOURCES = [
-  { url: 'https://feeds.reuters.com/reuters/topNews', label: 'REUTERS' },
-  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', label: 'NYT' },
-  { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', label: 'BBC' },
-  { url: 'https://www.aljazeera.com/xml/rss/all.xml', label: 'AL JAZEERA' }
-];
-
-var GEO_KEYWORDS = ['war','conflict','sanction','nuclear','missile','military','troops','ceasefire','attack','crisis','tension','invasion','strike','nato','ukraine','russia','china','taiwan','iran','israel','trade war','tariff','escalat','geopolit','oil','supply chain'];
-
-function geoClassifyTag(title) {
-  var t = title.toLowerCase();
-  if (/war|conflict|military|nuclear|missile|troops|attack|ceasefire|nato|invasion|strike/.test(t)) return 'war';
-  if (/trade|tariff|sanction|export|import|supply chain/.test(t)) return 'trade';
-  if (/oil|energy|gas|opec|pipeline/.test(t)) return 'energy';
-  if (/fed|rate|inflation|gdp|recession|dollar|yuan/.test(t)) return 'macro';
-  return 'default';
-}
-
-function geoGoldImpact(title) {
-  var t = title.toLowerCase();
-  if (/nuclear|invasion|attack|escalat|missile/.test(t)) return '<span style="color:var(--green)">▲ STRONGLY BULLISH</span>';
-  if (/war|conflict|military|crisis|sanction/.test(t)) return '<span style="color:var(--green)">▲ BULLISH</span>';
-  if (/ceasefire|peace|deal|agreement/.test(t)) return '<span style="color:var(--red)">▼ BEARISH (de-escalation)</span>';
-  if (/tariff|trade war|export control/.test(t)) return '<span style="color:var(--gold)">◆ MODERATELY BULLISH</span>';
-  if (/oil|energy|gas/.test(t)) return '<span style="color:var(--gold)">◆ WATCH</span>';
-  return '<span style="color:var(--t3)">— NEUTRAL</span>';
-}
-
-function geoIsRelevant(title) {
-  var t = title.toLowerCase();
-  return GEO_KEYWORDS.some(function(k){ return t.indexOf(k) !== -1; });
-}
-
-function geoTimeAgo(dateStr) {
-  try {
-    var d = new Date(dateStr);
-    var diff = Math.floor((Date.now() - d) / 60000);
-    if (diff < 1) return 'Just now';
-    if (diff < 60) return diff + 'm ago';
-    if (diff < 1440) return Math.floor(diff/60) + 'h ago';
-    return Math.floor(diff/1440) + 'd ago';
-  } catch(e) { return ''; }
-}
-
-async function fetchGeoRSS(src) {
-  var rssUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(src.url);
-  var r = await fetch(rssUrl, {signal: AbortSignal.timeout(5000)});
-  var text = await r.text();
-  var parser = new DOMParser();
-  var xml = parser.parseFromString(text, 'text/xml');
-  var items = Array.from(xml.querySelectorAll('item')).slice(0, 20);
-  return items.map(function(item) {
-    return {
-      title: item.querySelector('title') ? item.querySelector('title').textContent.trim() : '',
-      date: item.querySelector('pubDate') ? item.querySelector('pubDate').textContent : '',
-      link: item.querySelector('link') ? item.querySelector('link').textContent.trim() : '#',
-      source: src.label
-    };
-  }).filter(function(a){ return geoIsRelevant(a.title) && a.title.length > 10; });
-}
-
-window.refreshGeoNews = async function() {
-  var feed = document.getElementById('geoNewsFeed');
-  var status = document.getElementById('geoNewsStatus');
-  if (!feed) return;
-  feed.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Fetching latest news...</div>';
-  if (status) status.textContent = 'Loading...';
-
-  var now = Date.now();
-  if (geoNewsCached.length > 0 && now - geoNewsLastFetch < 300000) {
-    renderGeoNews(geoNewsCached);
-    if (status) status.textContent = 'Cached · ' + new Date(geoNewsLastFetch).toLocaleTimeString();
-    return;
-  }
-
-  try {
-    var results = await Promise.allSettled(GEO_RSS_SOURCES.map(fetchGeoRSS));
-    var all = [];
-    results.forEach(function(r){ if (r.status === 'fulfilled') all = all.concat(r.value); });
-
-    // Sort by date desc, deduplicate by title similarity
-    all.sort(function(a,b){ return new Date(b.date) - new Date(a.date); });
-    var seen = [];
-    all = all.filter(function(item){
-      var key = item.title.substring(0,30).toLowerCase();
-      if (seen.indexOf(key) !== -1) return false;
-      seen.push(key);
-      return true;
-    }).slice(0, 20);
-
-    if (all.length === 0) throw new Error('No relevant news found');
-    geoNewsCached = all;
-    geoNewsLastFetch = now;
-    renderGeoNews(all);
-    if (status) status.textContent = 'Updated ' + new Date().toLocaleTimeString();
-  } catch(e) {
-    // Fallback curated
-    var fallback = [
-      {title:'Russia launches overnight drone barrage on Ukrainian cities',date:new Date().toISOString(),source:'REUTERS',link:'#'},
-      {title:'US-China trade talks stall over semiconductor export controls',date:new Date().toISOString(),source:'BLOOMBERG',link:'#'},
-      {title:'Iran nuclear program: IAEA warns of enrichment acceleration',date:new Date().toISOString(),source:'BBC',link:'#'},
-      {title:'NATO member states increase military spending targets to 3% GDP',date:new Date().toISOString(),source:'NYT',link:'#'},
-      {title:'Middle East tensions push oil above $90 as Red Sea attacks resume',date:new Date().toISOString(),source:'REUTERS',link:'#'},
-      {title:'India-Pakistan military standoff: border shelling continues',date:new Date().toISOString(),source:'AL JAZEERA',link:'#'},
-      {title:'Taiwan Strait: PLA conducts largest military exercise of 2025',date:new Date().toISOString(),source:'BBC',link:'#'},
-    ];
-    geoNewsCached = fallback;
-    geoNewsLastFetch = now;
-    renderGeoNews(fallback);
-    if (status) status.textContent = 'Fallback data';
-  }
-};
-
-function renderGeoNews(items) {
-  var feed = document.getElementById('geoNewsFeed');
-  if (!feed || !items.length) return;
-  feed.innerHTML = items.map(function(item) {
-    var tag = geoClassifyTag(item.title);
-    var impact = geoGoldImpact(item.title);
-    var time = geoTimeAgo(item.date);
-    return '<div class="geo-news-item">' +
-      '<div><span class="geo-news-tag '+tag+'">'+tag.toUpperCase()+'</span><span style="font-size:9px;color:var(--t3)">'+item.source+'</span></div>' +
-      '<div class="geo-news-title">' + item.title + '</div>' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">' +
-        '<div class="geo-news-impact">Gold: ' + impact + '</div>' +
-        '<div class="geo-news-meta">' + time + '</div>' +
-      '</div>' +
-    '</div>';
-  }).join('');
-}
-
-window.runGeoAI = async function() {
-  var btn = document.getElementById('geoAiBtn');
-  var out = document.getElementById('geoAiOut');
-  if (!out) return;
-
-  var key = GEMINI_KEY || localStorage.getItem('dfxai_gemini') || '';
-  if (!key) {
-    out.innerHTML = '<span style="color:var(--red)">⚠ Gemini API key required. Set it in the AI Analysis tab first.</span>';
-    return;
-  }
-
-  var headlines = geoNewsCached.length > 0
-    ? geoNewsCached.slice(0, 10).map(function(n){ return '• ' + n.title; }).join('\n')
-    : 'No live news available. Use general geopolitical knowledge as of today.';
-
-  if (btn) { btn.textContent = '⏳ ANALYZING...'; btn.disabled = true; }
-  out.innerHTML = '<span style="color:var(--t3)">AI analyzing geopolitical landscape...</span>';
-
-  try {
-    var prompt = 'You are a professional gold market analyst. Based on these current geopolitical headlines:\n\n' +
-      headlines + '\n\n' +
-      'Provide a concise geopolitical analysis (max 150 words) covering:\n' +
-      '1. Top 2-3 geopolitical risks currently driving gold\n' +
-      '2. Overall safe-haven sentiment direction (bullish/bearish/neutral)\n' +
-      '3. Short-term gold price implication\n' +
-      'Format: bullet points, trader-style language, no fluff.';
-
-    var resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key, {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({contents:[{parts:[{text:prompt}]}]})
-    });
-    var data = await resp.json();
-    var text = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0]
-      ? data.candidates[0].content.parts[0].text : 'No response from AI.';
-
-    // Format bullets nicely
-    var html = text
-      .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gold)">$1</strong>')
-      .replace(/^[•\-\*]\s/gm, '<br>• ')
-      .replace(/\n/g, '<br>');
-
-    out.innerHTML = '<div style="color:var(--text)">' + html + '</div>' +
-      '<div style="margin-top:8px;font-size:9px;color:var(--t3)">Updated: ' + new Date().toLocaleTimeString() + ' · Gemini 2.5 Flash</div>';
-
-    // Update risk score based on AI response
-    var riskScore = 70;
-    if (/strongly bullish|critical|escalat|nuclear/i.test(text)) riskScore = 85;
-    else if (/bearish|de-escalat|ceasefire/i.test(text)) riskScore = 45;
-    var scoreEl = document.getElementById('geoRiskScore');
-    var labelEl = document.getElementById('geoRiskLabel');
-    if (scoreEl) scoreEl.textContent = riskScore;
-    if (labelEl) {
-      if (riskScore >= 75) { labelEl.textContent = 'HIGH RISK'; labelEl.style.color = 'var(--red)'; }
-      else if (riskScore >= 50) { labelEl.textContent = 'ELEVATED'; labelEl.style.color = 'var(--gold)'; }
-      else { labelEl.textContent = 'MODERATE'; labelEl.style.color = 'var(--blue)'; }
-    }
-  } catch(e) {
-    out.innerHTML = '<span style="color:var(--red)">Error: ' + e.message + '</span>';
-  } finally {
-    if (btn) { btn.textContent = '⚡ ANALYZE'; btn.disabled = false; }
-  }
-};
-
 // ── INIT ──
 async function init() {
   updateMarketBanner();
   setInterval(updateMarketBanner, 60000);
+  renderSignalHistory();
   await Promise.all([fetchQuotes(), loadMainChart('1h'), loadDxyChart(), fetchNews()]);
   setInterval(fetchQuotes, 60000);
   setInterval(function(){loadMainChart(state.interval);}, 300000);
