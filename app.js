@@ -14,35 +14,18 @@ var charts = {};
 var PROXIES = [
   function(u){ return 'https://corsproxy.io/?'+encodeURIComponent(u); },
   function(u){ return 'https://api.allorigins.win/raw?url='+encodeURIComponent(u); },
-  function(u){ return 'https://thingproxy.freeboard.io/fetch/'+u; },
   function(u){ return u; }
 ];
 var pIdx = 0;
 
 async function proxyFetch(url) {
-  // Race 2 proxy pertama, siapa cepat dia menang
-  var raceResult = await Promise.any(
-    [0, 1].map(function(i) {
-      var idx = (pIdx + i) % PROXIES.length;
-      return fetch(PROXIES[idx](url), {signal: AbortSignal.timeout(4000)})
-        .then(function(r) {
-          if (!r.ok) throw new Error('not ok');
-          pIdx = idx;
-          return r.json();
-        });
-    })
-  ).catch(function() { return null; });
-
-  if (raceResult) return raceResult;
-
-  // Fallback ke proxy lainnya
-  for (var i=2; i<PROXIES.length; i++) {
-    var idx2 = (pIdx+i) % PROXIES.length;
+  for (var i=0; i<PROXIES.length; i++) {
+    var idx = (pIdx+i) % PROXIES.length;
     try {
-      var r2 = await fetch(PROXIES[idx2](url), {signal: AbortSignal.timeout(4000)});
-      if (!r2.ok) continue;
-      var d = await r2.json();
-      pIdx = idx2;
+      var r = await fetch(PROXIES[idx](url), {signal: AbortSignal.timeout(8000)});
+      if (!r.ok) continue;
+      var d = await r.json();
+      pIdx = idx;
       return d;
     } catch(e) { continue; }
   }
@@ -129,13 +112,13 @@ async function yahooQuote(sym) {
 // ── FETCH ALL QUOTES ──
 async function fetchQuotes() {
   var symbols = {
-    'XAU/USD':'GC=F','XAG/USD':'SI=F','DXY':'DX-Y.NYB',
+    'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X',
     'GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','US10Y':'^TNX'
   };
   var tickerMap = {
     'XAU/USD':{p:'t-xau',c:'t-xau-chg',dec:2},
     'XAG/USD':{p:'t-xag',c:'t-xag-chg',dec:2},
-    'DXY':{p:'t-eur',c:'t-eur-chg',dec:2},
+    'EUR/USD':{p:'t-eur',c:'t-eur-chg',dec:4},
     'GBP/USD':{p:'t-gbp',c:'t-gbp-chg',dec:4},
     'USD/JPY':{p:'t-jpy',c:'t-jpy-chg',dec:2},
     'US10Y':{p:'t-us10',c:'t-us10-chg',dec:3}
@@ -159,7 +142,7 @@ async function fetchQuotes() {
     });
 
     if (results['XAU/USD']) { state.xau=results['XAU/USD']; updateXAU(); }
-    if (results['DXY']) { state.dxy=results['DXY']; updateDXY(); }
+    if (results['EUR/USD']) { state.dxy=results['EUR/USD']; updateDXY(); }
 
     if (anySuccess) {
       setStatus('apiStatusBadge','ok','● LIVE');
@@ -217,7 +200,7 @@ function updateDXY() {
 
 function updateDXYIndicator() {
   var d=state.dxy; if (!d||!d.pct&&d.pct!==0) return;
-  // DXY live index
+  // EUR/USD inverse = DXY proxy
   var pct=d.pct||0; // EUR up = DXY down
   var isWeak=pct>0.15, isStrong=pct<-0.15;
   var color=isWeak?'var(--green)':isStrong?'var(--red)':'var(--gold)';
@@ -260,7 +243,7 @@ function seriesLabels(series) {
 // ── FETCH SERIES (Yahoo Finance OHLC) ──
 async function fetchSeries(sym, interval, size) {
   size = size||80;
-  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','DXY':'DX-Y.NYB'};
+  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X','DXY':'EURUSD=X'};
   var tvToYf={'1min':'2m','5min':'5m','15min':'15m','30min':'30m','1h':'1h','4h':'1h','1day':'1d'};
   var yfRange={'2m':'1d','5m':'5d','15m':'5d','30m':'5d','1h':'1mo','1d':'6mo'};
   var yfi=tvToYf[interval]||'1h';
@@ -363,13 +346,13 @@ async function loadMainChart(interval) {
   if(s.length){ updateTechnicals(s); buildLineChart('xauMainChart','rgb(240,192,64)',s.map(function(v){return v.c;}),seriesLabels(s),260); }
 }
 async function loadDxyChart() {
-  var s=await fetchSeries('DXY','1h',60);
+  var s=await fetchSeries('EUR/USD','1h',60);
   if(s.length) buildLineChart('dxyMiniChart','rgb(77,166,255)',s.map(function(v){return v.c;}),seriesLabels(s),80);
 }
 async function loadH1Charts() {
   var xs=await fetchSeries('XAU/USD','1h',60);
   if(xs.length){ buildLineChart('xauH1Chart','rgb(240,192,64)',xs.map(function(v){return v.c;}),seriesLabels(xs),300); updateTechnicals(xs); }
-  var ds=await fetchSeries('DXY','1h',60);
+  var ds=await fetchSeries('EUR/USD','1h',60);
   if(ds.length) buildLineChart('dxyH1Chart','rgb(77,166,255)',ds.map(function(v){return v.c;}),seriesLabels(ds),300);
 }
 
@@ -396,7 +379,7 @@ window.switchPage = function(page, el) {
   if(el) el.classList.add('active');
   if(page==='charts') loadH1Charts();
   if(page==='cot') initCOTCharts();
-  if(page==='geopolitical') initCBChart();
+  if(page==='geopolitical') { initCBChart(); window.refreshGeoNews(); }
   if(page==='ai') renderAIPanel();
 };
 
@@ -443,13 +426,13 @@ window.renderAIPanel = async function() {
   var ema20=calcEMA(closes,20), ema50=calcEMA(closes,50), rsi=calcRSI(closes,14), atr=calcATR(s,14);
   var prompt='You are a professional XAUUSD (Gold) trader and analyst. Analyze the following real-time market data and provide a concise trading analysis in 5 bullet points:\n\n'+
     'XAUUSD Price: '+fmt(x.price)+'\nDaily Change: '+fmtPct(x.pct)+'\nOpen: '+fmt(x.open)+' | High: '+fmt(x.high)+' | Low: '+fmt(x.low)+'\n'+
-    'DXY: '+fmt(d.price,2)+' ('+fmtPct(d.pct)+')\n'+
+    'EUR/USD (DXY proxy): '+fmt(d.price,4)+' ('+fmtPct(d.pct)+')\n'+
     'RSI(14): '+(rsi?rsi.toFixed(1):'N/A')+'\nEMA20: '+fmt(ema20)+' | EMA50: '+fmt(ema50)+'\nATR(14): '+fmt(atr,1)+'\n'+
     'Price vs EMA20: '+(ema20&&x.price>ema20?'ABOVE (bullish)':'BELOW (bearish)')+'\n'+
     'Price vs EMA50: '+(ema50&&x.price>ema50?'ABOVE (bullish)':'BELOW (bearish)')+'\n\n'+
     'Provide: 1) Market Bias (Bullish/Bearish/Neutral) 2) Key levels to watch 3) Entry suggestion 4) Risk factors 5) Short-term outlook. Be concise and direct.';
   try {
-    var url='https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='+key;
+    var url='https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='+key;
     var r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:600}})});
     var data=await r.json();
@@ -485,6 +468,205 @@ async function fetchNews() {
     return '<div class="news-item"><div class="news-header"><span class="news-time">Today</span><span class="news-source">'+a.s+'</span><div class="impact-badge impact-'+a.i+'">'+a.i.toUpperCase()+'</div></div><div class="news-title">'+a.t+'</div><div class="news-desc">'+a.d+'</div></div>';
   }).join('');
 }
+
+// ── GEOPOLITICAL NEWS + AI ──
+var geoNewsCached = [];
+var geoNewsLastFetch = 0;
+
+var GEO_RSS_SOURCES = [
+  { url: 'https://feeds.reuters.com/reuters/topNews', label: 'REUTERS' },
+  { url: 'https://rss.nytimes.com/services/xml/rss/nyt/World.xml', label: 'NYT' },
+  { url: 'https://feeds.bbci.co.uk/news/world/rss.xml', label: 'BBC' },
+  { url: 'https://www.aljazeera.com/xml/rss/all.xml', label: 'AL JAZEERA' }
+];
+
+var GEO_KEYWORDS = ['war','conflict','sanction','nuclear','missile','military','troops','ceasefire','attack','crisis','tension','invasion','strike','nato','ukraine','russia','china','taiwan','iran','israel','trade war','tariff','escalat','geopolit','oil','supply chain'];
+
+function geoClassifyTag(title) {
+  var t = title.toLowerCase();
+  if (/war|conflict|military|nuclear|missile|troops|attack|ceasefire|nato|invasion|strike/.test(t)) return 'war';
+  if (/trade|tariff|sanction|export|import|supply chain/.test(t)) return 'trade';
+  if (/oil|energy|gas|opec|pipeline/.test(t)) return 'energy';
+  if (/fed|rate|inflation|gdp|recession|dollar|yuan/.test(t)) return 'macro';
+  return 'default';
+}
+
+function geoGoldImpact(title) {
+  var t = title.toLowerCase();
+  if (/nuclear|invasion|attack|escalat|missile/.test(t)) return '<span style="color:var(--green)">▲ STRONGLY BULLISH</span>';
+  if (/war|conflict|military|crisis|sanction/.test(t)) return '<span style="color:var(--green)">▲ BULLISH</span>';
+  if (/ceasefire|peace|deal|agreement/.test(t)) return '<span style="color:var(--red)">▼ BEARISH (de-escalation)</span>';
+  if (/tariff|trade war|export control/.test(t)) return '<span style="color:var(--gold)">◆ MODERATELY BULLISH</span>';
+  if (/oil|energy|gas/.test(t)) return '<span style="color:var(--gold)">◆ WATCH</span>';
+  return '<span style="color:var(--t3)">— NEUTRAL</span>';
+}
+
+function geoIsRelevant(title) {
+  var t = title.toLowerCase();
+  return GEO_KEYWORDS.some(function(k){ return t.indexOf(k) !== -1; });
+}
+
+function geoTimeAgo(dateStr) {
+  try {
+    var d = new Date(dateStr);
+    var diff = Math.floor((Date.now() - d) / 60000);
+    if (diff < 1) return 'Just now';
+    if (diff < 60) return diff + 'm ago';
+    if (diff < 1440) return Math.floor(diff/60) + 'h ago';
+    return Math.floor(diff/1440) + 'd ago';
+  } catch(e) { return ''; }
+}
+
+async function fetchGeoRSS(src) {
+  var rssUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(src.url);
+  var r = await fetch(rssUrl, {signal: AbortSignal.timeout(5000)});
+  var text = await r.text();
+  var parser = new DOMParser();
+  var xml = parser.parseFromString(text, 'text/xml');
+  var items = Array.from(xml.querySelectorAll('item')).slice(0, 20);
+  return items.map(function(item) {
+    return {
+      title: item.querySelector('title') ? item.querySelector('title').textContent.trim() : '',
+      date: item.querySelector('pubDate') ? item.querySelector('pubDate').textContent : '',
+      link: item.querySelector('link') ? item.querySelector('link').textContent.trim() : '#',
+      source: src.label
+    };
+  }).filter(function(a){ return geoIsRelevant(a.title) && a.title.length > 10; });
+}
+
+window.refreshGeoNews = async function() {
+  var feed = document.getElementById('geoNewsFeed');
+  var status = document.getElementById('geoNewsStatus');
+  if (!feed) return;
+  feed.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Fetching latest news...</div>';
+  if (status) status.textContent = 'Loading...';
+
+  var now = Date.now();
+  if (geoNewsCached.length > 0 && now - geoNewsLastFetch < 300000) {
+    renderGeoNews(geoNewsCached);
+    if (status) status.textContent = 'Cached · ' + new Date(geoNewsLastFetch).toLocaleTimeString();
+    return;
+  }
+
+  try {
+    var results = await Promise.allSettled(GEO_RSS_SOURCES.map(fetchGeoRSS));
+    var all = [];
+    results.forEach(function(r){ if (r.status === 'fulfilled') all = all.concat(r.value); });
+
+    // Sort by date desc, deduplicate by title similarity
+    all.sort(function(a,b){ return new Date(b.date) - new Date(a.date); });
+    var seen = [];
+    all = all.filter(function(item){
+      var key = item.title.substring(0,30).toLowerCase();
+      if (seen.indexOf(key) !== -1) return false;
+      seen.push(key);
+      return true;
+    }).slice(0, 20);
+
+    if (all.length === 0) throw new Error('No relevant news found');
+    geoNewsCached = all;
+    geoNewsLastFetch = now;
+    renderGeoNews(all);
+    if (status) status.textContent = 'Updated ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    // Fallback curated
+    var fallback = [
+      {title:'Russia launches overnight drone barrage on Ukrainian cities',date:new Date().toISOString(),source:'REUTERS',link:'#'},
+      {title:'US-China trade talks stall over semiconductor export controls',date:new Date().toISOString(),source:'BLOOMBERG',link:'#'},
+      {title:'Iran nuclear program: IAEA warns of enrichment acceleration',date:new Date().toISOString(),source:'BBC',link:'#'},
+      {title:'NATO member states increase military spending targets to 3% GDP',date:new Date().toISOString(),source:'NYT',link:'#'},
+      {title:'Middle East tensions push oil above $90 as Red Sea attacks resume',date:new Date().toISOString(),source:'REUTERS',link:'#'},
+      {title:'India-Pakistan military standoff: border shelling continues',date:new Date().toISOString(),source:'AL JAZEERA',link:'#'},
+      {title:'Taiwan Strait: PLA conducts largest military exercise of 2025',date:new Date().toISOString(),source:'BBC',link:'#'},
+    ];
+    geoNewsCached = fallback;
+    geoNewsLastFetch = now;
+    renderGeoNews(fallback);
+    if (status) status.textContent = 'Fallback data';
+  }
+};
+
+function renderGeoNews(items) {
+  var feed = document.getElementById('geoNewsFeed');
+  if (!feed || !items.length) return;
+  feed.innerHTML = items.map(function(item) {
+    var tag = geoClassifyTag(item.title);
+    var impact = geoGoldImpact(item.title);
+    var time = geoTimeAgo(item.date);
+    return '<div class="geo-news-item">' +
+      '<div><span class="geo-news-tag '+tag+'">'+tag.toUpperCase()+'</span><span style="font-size:9px;color:var(--t3)">'+item.source+'</span></div>' +
+      '<div class="geo-news-title">' + item.title + '</div>' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">' +
+        '<div class="geo-news-impact">Gold: ' + impact + '</div>' +
+        '<div class="geo-news-meta">' + time + '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+window.runGeoAI = async function() {
+  var btn = document.getElementById('geoAiBtn');
+  var out = document.getElementById('geoAiOut');
+  if (!out) return;
+
+  var key = GEMINI_KEY || localStorage.getItem('dfxai_gemini') || '';
+  if (!key) {
+    out.innerHTML = '<span style="color:var(--red)">⚠ Gemini API key required. Set it in the AI Analysis tab first.</span>';
+    return;
+  }
+
+  var headlines = geoNewsCached.length > 0
+    ? geoNewsCached.slice(0, 10).map(function(n){ return '• ' + n.title; }).join('\n')
+    : 'No live news available. Use general geopolitical knowledge as of today.';
+
+  if (btn) { btn.textContent = '⏳ ANALYZING...'; btn.disabled = true; }
+  out.innerHTML = '<span style="color:var(--t3)">AI analyzing geopolitical landscape...</span>';
+
+  try {
+    var prompt = 'You are a professional gold market analyst. Based on these current geopolitical headlines:\n\n' +
+      headlines + '\n\n' +
+      'Provide a concise geopolitical analysis (max 150 words) covering:\n' +
+      '1. Top 2-3 geopolitical risks currently driving gold\n' +
+      '2. Overall safe-haven sentiment direction (bullish/bearish/neutral)\n' +
+      '3. Short-term gold price implication\n' +
+      'Format: bullet points, trader-style language, no fluff.';
+
+    var resp = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + key, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({contents:[{parts:[{text:prompt}]}]})
+    });
+    var data = await resp.json();
+    var text = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts[0]
+      ? data.candidates[0].content.parts[0].text : 'No response from AI.';
+
+    // Format bullets nicely
+    var html = text
+      .replace(/\*\*(.*?)\*\*/g, '<strong style="color:var(--gold)">$1</strong>')
+      .replace(/^[•\-\*]\s/gm, '<br>• ')
+      .replace(/\n/g, '<br>');
+
+    out.innerHTML = '<div style="color:var(--text)">' + html + '</div>' +
+      '<div style="margin-top:8px;font-size:9px;color:var(--t3)">Updated: ' + new Date().toLocaleTimeString() + ' · Gemini 2.5 Flash</div>';
+
+    // Update risk score based on AI response
+    var riskScore = 70;
+    if (/strongly bullish|critical|escalat|nuclear/i.test(text)) riskScore = 85;
+    else if (/bearish|de-escalat|ceasefire/i.test(text)) riskScore = 45;
+    var scoreEl = document.getElementById('geoRiskScore');
+    var labelEl = document.getElementById('geoRiskLabel');
+    if (scoreEl) scoreEl.textContent = riskScore;
+    if (labelEl) {
+      if (riskScore >= 75) { labelEl.textContent = 'HIGH RISK'; labelEl.style.color = 'var(--red)'; }
+      else if (riskScore >= 50) { labelEl.textContent = 'ELEVATED'; labelEl.style.color = 'var(--gold)'; }
+      else { labelEl.textContent = 'MODERATE'; labelEl.style.color = 'var(--blue)'; }
+    }
+  } catch(e) {
+    out.innerHTML = '<span style="color:var(--red)">Error: ' + e.message + '</span>';
+  } finally {
+    if (btn) { btn.textContent = '⚡ ANALYZE'; btn.disabled = false; }
+  }
+};
 
 // ── INIT ──
 async function init() {
