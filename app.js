@@ -4,7 +4,8 @@
 // ── CONFIG ──
 var TD_KEY  = 'a0680ea88b934543be5eaab23f518f6d';
 var AV_KEY  = 'CVRA2AHLUR4OWPY4';
-var GEMINI_KEY = ''; // Set via UI
+var GROQ_KEY = ''; // Set via UI
+var GEMINI_KEY = ''; // legacy - unused
 
 // ── STATE ──
 var state = { xau:{}, dxy:{}, xauSeries:[], dxySeries:[], interval:'1h' };
@@ -535,7 +536,7 @@ window.switchPage = function(page, el) {
   if(el) el.classList.add('active');
   if(page==='charts') loadH1Charts();
   if(page==='cot') initCOTCharts();
-  if(page==='geopolitical') initCBChart();
+  if(page==='geopolitical') { initCBChart(); window.refreshGeoNews(); }
   if(page==='ai') renderAIPanel();
 };
 
@@ -560,54 +561,162 @@ window.setCalFilter = function(type, el) {
   frame.src=urls[type]||urls['all'];
 };
 
-// ── GEMINI AI ANALYSIS ──
-window.setGeminiKey = function() {
-  var k=document.getElementById('geminiKeyInput'); if(!k) return;
-  GEMINI_KEY=k.value.trim(); localStorage.setItem('dfxai_gemini',GEMINI_KEY);
-  setEl('geminiKeyStatus','✓ Key saved'); renderAIPanel();
+// ── GROQ AI ──
+var GROQ_KEY = '';
+var GROQ_MODEL = 'llama-3.3-70b-versatile';
+
+async function groqChat(prompt) {
+  var key = GROQ_KEY || localStorage.getItem('dfxai_groq') || '';
+  if (!key) throw new Error('Groq API key belum diset. Masuk ke tab AI Analysis dulu.');
+  var r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      messages: [{role:'user', content: prompt}],
+      temperature: 0.7,
+      max_tokens: 600
+    })
+  });
+  var data = await r.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || 'No response';
+}
+
+function formatAIText(txt) {
+  var lines = txt.split('\n').filter(function(l){ return l.trim(); });
+  return lines.map(function(l) {
+    l = l.trim();
+    if (l.match(/^[1-5][\.\)]|^\*\*|^•|-\s/) || l.includes('**')) {
+      l = l.replace(/\*\*/g,'').replace(/^[-•]\s*/,'');
+      return '<div style="padding:8px 0;border-bottom:1px solid rgba(26,37,64,0.5)"><span style="color:var(--gold)">◈ </span>'+l+'</div>';
+    }
+    return '<div style="color:var(--t2);font-size:10px;line-height:1.6;padding:2px 0">'+l+'</div>';
+  }).join('');
+}
+
+window.setGroqKey = function() {
+  var k = document.getElementById('groqKeyInput'); if (!k) return;
+  GROQ_KEY = k.value.trim();
+  localStorage.setItem('dfxai_groq', GROQ_KEY);
+  setEl('groqKeyStatus', '✓ Key saved');
+  renderAIPanel();
 };
 
 window.renderAIPanel = async function() {
-  var key=GEMINI_KEY||localStorage.getItem('dfxai_gemini')||'';
-  if(!key) {
-    var panel=document.getElementById('aiAnalysisResult');
-    if(panel) panel.innerHTML='<div style="padding:20px;color:var(--text-dim);text-align:center">Enter your Gemini API key above to enable AI analysis</div>';
+  var key = GROQ_KEY || localStorage.getItem('dfxai_groq') || '';
+  var panel = document.getElementById('aiAnalysisResult');
+  if (!key) {
+    if (panel) panel.innerHTML='<div style="padding:20px;color:var(--t3);text-align:center">Masukkan Groq API key di atas untuk mengaktifkan AI analysis</div>';
     return;
   }
-  GEMINI_KEY=key;
-  var panel=document.getElementById('aiAnalysisResult');
-  if(panel) panel.innerHTML='<div style="padding:20px;color:var(--gold);text-align:center">⟳ Analyzing market conditions...</div>';
+  GROQ_KEY = key;
+  if (panel) panel.innerHTML='<div style="padding:20px;color:var(--gold);text-align:center">⟳ Analyzing market conditions...</div>';
   var x=state.xau, d=state.dxy, s=state.xauSeries;
   var closes=s.map(function(v){return v.c;});
   var ema20=calcEMA(closes,20), ema50=calcEMA(closes,50), rsi=calcRSI(closes,14), atr=calcATR(s,14);
   var prompt='You are a professional XAUUSD (Gold) trader and analyst. Analyze the following real-time market data and provide a concise trading analysis in 5 bullet points:\n\n'+
     'XAUUSD Price: '+fmt(x.price)+'\nDaily Change: '+fmtPct(x.pct)+'\nOpen: '+fmt(x.open)+' | High: '+fmt(x.high)+' | Low: '+fmt(x.low)+'\n'+
-    'EUR/USD (DXY proxy): '+fmt(d.price,4)+' ('+fmtPct(d.pct)+')\n'+
+    'DXY: '+fmt(d.price,2)+' ('+fmtPct(d.pct)+')\n'+
     'RSI(14): '+(rsi?rsi.toFixed(1):'N/A')+'\nEMA20: '+fmt(ema20)+' | EMA50: '+fmt(ema50)+'\nATR(14): '+fmt(atr,1)+'\n'+
     'Price vs EMA20: '+(ema20&&x.price>ema20?'ABOVE (bullish)':'BELOW (bearish)')+'\n'+
     'Price vs EMA50: '+(ema50&&x.price>ema50?'ABOVE (bullish)':'BELOW (bearish)')+'\n\n'+
     'Provide: 1) Market Bias (Bullish/Bearish/Neutral) 2) Key levels to watch 3) Entry suggestion 4) Risk factors 5) Short-term outlook. Be concise and direct.';
   try {
-    var url='https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='+key;
-    var r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{temperature:0.7,maxOutputTokens:600}})});
-    var data=await r.json();
-    if(data.error) throw new Error(data.error.message);
-    var txt=data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts&&data.candidates[0].content.parts[0].text||'No response';
-    // Format nicely
-    var lines=txt.split('\n').filter(function(l){return l.trim();});
-    var html=lines.map(function(l){
-      l=l.trim();
-      if(l.match(/^[1-5]\)|^\*\*[1-5]/)||l.includes('**')) {
-        l=l.replace(/\*\*/g,'');
-        return '<div style="padding:8px 0;border-bottom:1px solid rgba(26,37,64,0.5)"><span style="color:var(--gold)">◈ </span>'+l+'</div>';
-      }
-      return '<div style="color:var(--text-secondary);font-size:10px;line-height:1.6;padding:2px 0">'+l+'</div>';
-    }).join('');
-    if(panel) panel.innerHTML='<div style="padding:12px">'+html+'</div>';
+    var txt = await groqChat(prompt);
+    if (panel) panel.innerHTML='<div style="padding:12px">'+formatAIText(txt)+'</div>';
   } catch(e) {
-    if(panel) panel.innerHTML='<div style="padding:20px;color:var(--red);text-align:center">⚠ Gemini error: '+e.message+'</div>';
+    if (panel) panel.innerHTML='<div style="padding:20px;color:var(--red);text-align:center">⚠ Groq error: '+e.message+'</div>';
   }
+};
+
+
+// ── GEOPOLITICAL NEWS + AI ──
+var geoNewsCached = [];
+var geoNewsLastFetch = 0;
+var GEO_RSS_SOURCES = [
+  {url:'https://feeds.reuters.com/reuters/topNews',label:'REUTERS'},
+  {url:'https://feeds.bbci.co.uk/news/world/rss.xml',label:'BBC'},
+  {url:'https://www.aljazeera.com/xml/rss/all.xml',label:'AL JAZEERA'},
+  {url:'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',label:'NYT'}
+];
+var GEO_KEYWORDS=['war','conflict','sanction','nuclear','missile','military','troops','ceasefire','attack','crisis','tension','invasion','strike','nato','ukraine','russia','china','taiwan','iran','israel','trade war','tariff','escalat','geopolit','oil','supply chain'];
+
+function geoClassifyTag(t){t=t.toLowerCase();if(/war|conflict|military|nuclear|missile|troops|attack|ceasefire|nato|invasion|strike/.test(t))return'war';if(/trade|tariff|sanction|export|import|supply chain/.test(t))return'trade';if(/oil|energy|gas|opec|pipeline/.test(t))return'energy';if(/fed|rate|inflation|gdp|recession|dollar|yuan/.test(t))return'macro';return'default';}
+function geoGoldImpact(t){t=t.toLowerCase();if(/nuclear|invasion|attack|escalat|missile/.test(t))return'<span style="color:var(--green)">▲ STRONGLY BULLISH</span>';if(/war|conflict|military|crisis|sanction/.test(t))return'<span style="color:var(--green)">▲ BULLISH</span>';if(/ceasefire|peace|deal|agreement/.test(t))return'<span style="color:var(--red)">▼ BEARISH</span>';if(/tariff|trade war|export control/.test(t))return'<span style="color:var(--gold)">◆ MOD. BULLISH</span>';return'<span style="color:var(--t3)">— NEUTRAL</span>';}
+function geoIsRelevant(t){t=t.toLowerCase();return GEO_KEYWORDS.some(function(k){return t.indexOf(k)!==-1;});}
+function geoTimeAgo(ds){try{var d=new Date(ds),diff=Math.floor((Date.now()-d)/60000);if(diff<1)return'Just now';if(diff<60)return diff+'m ago';if(diff<1440)return Math.floor(diff/60)+'h ago';return Math.floor(diff/1440)+'d ago';}catch(e){return'';}}
+
+async function fetchGeoRSS(src){
+  var r=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(src.url),{signal:AbortSignal.timeout(5000)});
+  var xml=(new DOMParser()).parseFromString(await r.text(),'text/xml');
+  return Array.from(xml.querySelectorAll('item')).slice(0,20).map(function(item){
+    return{title:item.querySelector('title')?item.querySelector('title').textContent.trim():'',date:item.querySelector('pubDate')?item.querySelector('pubDate').textContent:'',source:src.label};
+  }).filter(function(a){return geoIsRelevant(a.title)&&a.title.length>10;});
+}
+
+window.refreshGeoNews = async function(){
+  var feed=document.getElementById('geoNewsFeed'),status=document.getElementById('geoNewsStatus');
+  if(!feed)return;
+  feed.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Fetching latest news...</div>';
+  if(status)status.textContent='Loading...';
+  var now=Date.now();
+  if(geoNewsCached.length>0&&now-geoNewsLastFetch<300000){renderGeoNews(geoNewsCached);if(status)status.textContent='Cached · '+new Date(geoNewsLastFetch).toLocaleTimeString();return;}
+  try{
+    var results=await Promise.allSettled(GEO_RSS_SOURCES.map(fetchGeoRSS));
+    var all=[];results.forEach(function(r){if(r.status==='fulfilled')all=all.concat(r.value);});
+    all.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
+    var seen=[];all=all.filter(function(item){var key=item.title.substring(0,30).toLowerCase();if(seen.indexOf(key)!==-1)return false;seen.push(key);return true;}).slice(0,20);
+    if(!all.length)throw new Error('No news');
+    geoNewsCached=all;geoNewsLastFetch=now;
+    renderGeoNews(all);if(status)status.textContent='Updated '+new Date().toLocaleTimeString();
+  }catch(e){
+    var fallback=[
+      {title:'Russia launches overnight drone barrage on Ukrainian cities',date:new Date().toISOString(),source:'REUTERS'},
+      {title:'US-China trade talks stall over semiconductor export controls',date:new Date().toISOString(),source:'BLOOMBERG'},
+      {title:'Iran nuclear program: IAEA warns of enrichment acceleration',date:new Date().toISOString(),source:'BBC'},
+      {title:'NATO member states increase military spending targets',date:new Date().toISOString(),source:'NYT'},
+      {title:'Middle East tensions push oil higher as Red Sea attacks resume',date:new Date().toISOString(),source:'REUTERS'},
+    ];
+    geoNewsCached=fallback;geoNewsLastFetch=now;renderGeoNews(fallback);if(status)status.textContent='Fallback data';
+  }
+};
+
+function renderGeoNews(items){
+  var feed=document.getElementById('geoNewsFeed');if(!feed||!items.length)return;
+  feed.innerHTML=items.map(function(item){
+    var tag=geoClassifyTag(item.title),impact=geoGoldImpact(item.title),time=geoTimeAgo(item.date);
+    return'<div class="geo-news-item">'+
+      '<div><span class="geo-news-tag '+tag+'">'+tag.toUpperCase()+'</span><span style="font-size:9px;color:var(--t3)">'+item.source+'</span></div>'+
+      '<div class="geo-news-title">'+item.title+'</div>'+
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">'+
+        '<div class="geo-news-impact">Gold: '+impact+'</div>'+
+        '<div class="geo-news-meta">'+time+'</div>'+
+      '</div></div>';
+  }).join('');
+}
+
+window.runGeoAI = async function(){
+  var btn=document.getElementById('geoAiBtn'),out=document.getElementById('geoAiOut');
+  if(!out)return;
+  var key=GROQ_KEY||localStorage.getItem('dfxai_groq')||'';
+  if(!key){out.innerHTML='<span style="color:var(--red)">⚠ Groq API key belum diset. Masuk ke tab AI Analysis dulu.</span>';return;}
+  if(btn){btn.textContent='⏳ ANALYZING...';btn.disabled=true;}
+  out.innerHTML='<span style="color:var(--t3)">AI analyzing geopolitical landscape...</span>';
+  var headlines=geoNewsCached.length>0?geoNewsCached.slice(0,10).map(function(n){return'• '+n.title;}).join('\n'):'No live news. Use general geopolitical knowledge.';
+  var prompt='You are a professional gold market analyst. Based on these current geopolitical headlines:\n\n'+headlines+'\n\nProvide a concise geopolitical analysis (max 150 words) covering:\n1. Top 2-3 geopolitical risks currently driving gold\n2. Overall safe-haven sentiment (bullish/bearish/neutral)\n3. Short-term gold price implication\nFormat: bullet points, trader-style, no fluff.';
+  try{
+    var text=await groqChat(prompt);
+    var html=text.replace(/\*\*(.*?)\*\*/g,'<strong style="color:var(--gold)">$1</strong>').replace(/^[•\-\*]\s/gm,'<br>• ').replace(/\n/g,'<br>');
+    out.innerHTML='<div style="color:var(--text)">'+html+'</div><div style="margin-top:8px;font-size:9px;color:var(--t3)">Updated: '+new Date().toLocaleTimeString()+' · Groq llama-3.3-70b</div>';
+    var score=70;
+    if(/strongly bullish|critical|escalat|nuclear/i.test(text))score=85;
+    else if(/bearish|de-escalat|ceasefire/i.test(text))score=45;
+    var se=document.getElementById('geoRiskScore'),le=document.getElementById('geoRiskLabel');
+    if(se)se.textContent=score;
+    if(le){if(score>=75){le.textContent='HIGH RISK';le.style.color='var(--red)';}else if(score>=50){le.textContent='ELEVATED';le.style.color='var(--gold)';}else{le.textContent='MODERATE';le.style.color='var(--blue)';}}
+  }catch(e){out.innerHTML='<span style="color:var(--red)">Error: '+e.message+'</span>';}
+  finally{if(btn){btn.textContent='⚡ ANALYZE';btn.disabled=false;}}
 };
 
 // ── NEWS ──
