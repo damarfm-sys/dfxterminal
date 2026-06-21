@@ -57,12 +57,22 @@
 <div class="topbar">
   <div class="logo"><div class="logo-dot"></div>DFXAi<span style="color:var(--t2);font-weight:400"> TERMINAL</span></div>
   <div class="ticker-strip">
-    <div class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau">—</span><span class="ticker-chg" id="t-xau-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price" id="t-xag">—</span><span class="ticker-chg" id="t-xag-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">EUR/USD</span><span class="ticker-price" id="t-eur">—</span><span class="ticker-chg" id="t-eur-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price" id="t-gbp">—</span><span class="ticker-chg" id="t-gbp-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price" id="t-jpy">—</span><span class="ticker-chg" id="t-jpy-chg">—</span></div>
-    <div class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10">—</span><span class="ticker-chg" id="t-us10-chg">—</span></div>
+    <marquee id="tickerMarquee" behavior="scroll" direction="left" scrollamount="3" style="flex:1;overflow:hidden">
+      <span class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau">—</span><span class="ticker-chg" id="t-xau-chg">—</span></span>
+      &nbsp;&nbsp;◆&nbsp;&nbsp;
+      <span class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price" id="t-xag">—</span><span class="ticker-chg" id="t-xag-chg">—</span></span>
+      &nbsp;&nbsp;◆&nbsp;&nbsp;
+      <span class="ticker-item"><span class="ticker-sym">DXY</span><span class="ticker-price" id="t-eur">—</span><span class="ticker-chg" id="t-eur-chg">—</span></span>
+      &nbsp;&nbsp;◆&nbsp;&nbsp;
+      <span class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price" id="t-gbp">—</span><span class="ticker-chg" id="t-gbp-chg">—</span></span>
+      &nbsp;&nbsp;◆&nbsp;&nbsp;
+      <span class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price" id="t-jpy">—</span><span class="ticker-chg" id="t-jpy-chg">—</span></span>
+      &nbsp;&nbsp;◆&nbsp;&nbsp;
+      <span class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10">—</span><span class="ticker-chg" id="t-us10-chg">—</span></span>
+      &nbsp;&nbsp;◆&nbsp;&nbsp;
+      <span class="ticker-item"><span class="ticker-sym">BTC/USD</span><span class="ticker-price" id="t-btc">—</span><span class="ticker-chg" id="t-btc-chg">—</span></span>
+      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+    </marquee>
   </div>
   <div class="topbar-right">
     <button id="userMenuBtn" onclick="window.toggleUserMenu()"><span id="userEmailDisplay">—</span> ▾</button>
@@ -223,7 +233,42 @@
 <div id="page-charts" class="page">
   <div class="grid-2" style="margin-bottom:8px">
     <div class="panel"><div class="panel-header"><div class="panel-title"><span class="accent">XAUUSD</span> · 1H CHART</div></div><div class="chart-wrap" style="height:300px"><canvas id="xauH1Chart"></canvas></div></div>
-    <div class="panel"><div class="panel-header"><div class="panel-title"><span class="accent">EUR/USD</span> · 1H CHART (DXY Proxy)</div></div><div class="chart-wrap" style="height:300px"><canvas id="dxyH1Chart"></canvas></div></div>
+    <div class="panel"><div class="panel-header"><div class="panel-title"><span class="accent">DXY</span> · 1H CHART</div></div><div class="chart-wrap" style="height:300px"><canvas id="dxyH1Chart"></canvas></div></div>
+  </div>
+  <div class="grid-2" style="margin-bottom:8px">
+    <div class="panel">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="panel-title"><span class="accent">BTC/USD</span> · 1H CHART</div>
+        <span class="api-status api-load" id="btcChartStatus">Loading…</span>
+      </div>
+      <div class="chart-wrap" style="height:260px"><canvas id="btcH1Chart"></canvas></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);padding:8px 12px;gap:8px">
+        <div><div class="stat-label">BTC PRICE</div><div class="stat-val" id="btcPrice" style="color:var(--gold)">—</div></div>
+        <div><div class="stat-label">24H CHG</div><div class="stat-val" id="btcChg">—</div></div>
+        <div><div class="stat-label">RSI (14)</div><div class="stat-val" id="btcRSI">—</div></div>
+        <div><div class="stat-label">SIGNAL</div><div class="stat-val" id="btcSignalBadge">—</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">BTC</span> SIGNAL & LEVELS</div></div>
+      <div style="padding:14px">
+        <div class="signal-box buy" id="btcSignalBox" style="margin-bottom:10px">
+          <div style="font-size:9px;color:var(--t3);margin-bottom:4px" id="btcSetup">—</div>
+          <div class="signal-label buy" id="btcDir">—</div>
+          <div style="height:1px;background:rgba(34,217,138,0.2);margin:8px 0"></div>
+          <div class="signal-row"><span class="signal-key">ENTRY ZONE</span><span class="signal-val up" id="btcEntry">—</span></div>
+          <div class="signal-row"><span class="signal-key">STOP LOSS</span><span class="signal-val down" id="btcSL">—</span></div>
+          <div class="signal-row"><span class="signal-key">TARGET 1</span><span class="signal-val up" id="btcTP1">—</span></div>
+          <div class="signal-row"><span class="signal-key">TARGET 2</span><span class="signal-val up" id="btcTP2">—</span></div>
+          <div class="signal-row"><span class="signal-key">R:R RATIO</span><span class="signal-val" style="color:var(--gold)" id="btcRR">—</span></div>
+          <div class="signal-row"><span class="signal-key">CONFIDENCE</span><span class="signal-val up" id="btcConf">—</span></div>
+        </div>
+        <div style="padding:10px;background:var(--bg-card);border-radius:3px;border-left:3px solid var(--purple)">
+          <div style="font-size:9px;color:var(--purple);margin-bottom:4px;letter-spacing:1px">BTC RATIONALE</div>
+          <div style="font-size:10px;color:var(--t2);line-height:1.6" id="btcRationale">Loading BTC data…</div>
+        </div>
+      </div>
+    </div>
   </div>
   <div class="panel">
     <div class="panel-header"><div class="panel-title"><span class="accent">TECHNICAL</span> INDICATORS — XAUUSD</div></div>
@@ -429,34 +474,79 @@
 
 <!-- ═══ CALENDAR ═══ -->
 <div id="page-calendar" class="page">
-  <div class="panel">
-    <div class="panel-header">
-      <div class="panel-title"><span class="accent">◈</span> ECONOMIC CALENDAR — LIVE</div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <button class="cal-filter-btn" onclick="window.setCalFilter('all',this)" style="background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.3);color:var(--gold)">ALL</button>
-        <button class="cal-filter-btn" onclick="window.setCalFilter('high',this)" style="background:transparent;border:1px solid var(--border);color:var(--t2)">HIGH ONLY</button>
-        <button class="cal-filter-btn" onclick="window.setCalFilter('usd',this)" style="background:transparent;border:1px solid var(--border);color:var(--t2)">🇺🇸 USD</button>
-        <span style="font-size:9px;color:var(--t3);margin-left:8px">investing.com · Real-time</span>
+  <div class="grid-2" style="align-items:start">
+
+    <!-- KIRI: Calendar iframe (lebih kecil) -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title"><span class="accent">◈</span> ECONOMIC CALENDAR — LIVE</div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:9px;color:var(--t3)">investing.com</span>
+        </div>
+      </div>
+      <div style="position:relative;height:460px;background:var(--bg-card)">
+        <div id="calLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--t3);z-index:1;flex-direction:column;gap:10px">
+          <div style="font-size:20px">⟳</div><div>Loading calendar…</div>
+        </div>
+        <iframe id="investingCalFrame"
+          src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=datepicker,timezone&countries=5,22,25,32,4,37&calType=week&timeZone=18&lang=1"
+          style="width:100%;height:460px;border:none;display:block;position:relative;z-index:2;filter:invert(0.92) hue-rotate(180deg) saturate(0.9) brightness(0.85)"
+          onload="document.getElementById('calLoading').style.display='none'" loading="lazy"></iframe>
+      </div>
+      <!-- Gold Impact Guide -->
+      <div style="padding:10px;border-top:1px solid var(--border)">
+        <div style="font-size:9px;color:var(--t3);letter-spacing:2px;margin-bottom:8px">GOLD IMPACT GUIDE</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div style="padding:7px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.2);border-radius:3px"><div style="font-size:9px;color:var(--red);margin-bottom:3px">🔴 GOLD NAIK</div><div style="font-size:9px;color:var(--t3);line-height:1.5">NFP miss · CPI rendah · Fed dovish</div></div>
+          <div style="padding:7px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px"><div style="font-size:9px;color:var(--green);margin-bottom:3px">🟢 GOLD TURUN</div><div style="font-size:9px;color:var(--t3);line-height:1.5">NFP beat · CPI tinggi · Fed hawkish</div></div>
+        </div>
       </div>
     </div>
-    <div style="position:relative;height:600px;background:var(--bg-card)">
-      <div id="calLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--t3);z-index:1;flex-direction:column;gap:10px">
-        <div style="font-size:20px">⟳</div><div>Loading calendar…</div>
+
+    <!-- KANAN: Fed Watch + High Impact Releases -->
+    <div style="display:flex;flex-direction:column;gap:8px">
+
+      <!-- FED WATCH -->
+      <div class="panel">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="panel-title"><span class="accent">◈</span> FED RATE CUT PROBABILITY</div>
+          <button onclick="window.refreshFedWatch()" style="font-size:9px;padding:2px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">↻</button>
+        </div>
+        <div style="padding:12px">
+          <!-- Current Rate -->
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+            <div style="padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(240,192,64,0.2);text-align:center">
+              <div class="stat-label">CURRENT RATE</div>
+              <div id="fedCurrentRate" style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--gold)">4.25-4.50%</div>
+            </div>
+            <div style="padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(34,217,138,0.2);text-align:center">
+              <div class="stat-label">CUT PROB (NEXT)</div>
+              <div id="fedCutProb" style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--green)">—</div>
+            </div>
+            <div style="padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(77,166,255,0.2);text-align:center">
+              <div class="stat-label">NEXT MEETING</div>
+              <div id="fedNextMeet" style="font-size:11px;font-weight:600;color:var(--blue);margin-top:4px">Jul 30</div>
+            </div>
+          </div>
+          <!-- Probability bars per meeting -->
+          <div id="fedWatchBars" style="display:flex;flex-direction:column;gap:6px">
+            <div style="text-align:center;color:var(--t3);font-size:10px;padding:10px">Loading Fed Watch data…</div>
+          </div>
+          <div style="margin-top:8px;font-size:9px;color:var(--t3)">Source: CME FedWatch · Updates every 15min</div>
+        </div>
       </div>
-      <iframe id="investingCalFrame"
-        src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=datepicker,timezone&countries=5,22,25,32,4,37&calType=week&timeZone=18&lang=1"
-        style="width:100%;height:600px;border:none;display:block;position:relative;z-index:2;filter:invert(0.92) hue-rotate(180deg) saturate(0.9) brightness(0.85)"
-        onload="document.getElementById('calLoading').style.display='none'" loading="lazy"></iframe>
-    </div>
-    <!-- Gold Impact Guide -->
-    <div style="padding:12px;border-top:1px solid var(--border);background:var(--bg-card)">
-      <div style="font-family:'Syne',sans-serif;font-size:9px;letter-spacing:2px;color:var(--t2);text-transform:uppercase;margin-bottom:10px">GOLD IMPACT GUIDE</div>
-      <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
-        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(255,77,109,0.2);border-radius:3px"><div style="font-size:9px;color:var(--red);margin-bottom:5px">🔴 GOLD NAIK — Data lemah</div><div style="font-size:9px;color:var(--t2);line-height:1.6">NFP miss · CPI rendah · Fed dovish · GDP lemah · Jobless naik</div></div>
-        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(34,217,138,0.2);border-radius:3px"><div style="font-size:9px;color:var(--green);margin-bottom:5px">🟢 GOLD TURUN — Data kuat</div><div style="font-size:9px;color:var(--t2);line-height:1.6">NFP beat · CPI tinggi · Fed hawkish · GDP kuat · USD menguat</div></div>
-        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(240,192,64,0.2);border-radius:3px"><div style="font-size:9px;color:var(--gold);margin-bottom:5px">⚡ EVENT TERPENTING</div><div style="font-size:9px;color:var(--t2);line-height:1.6">FOMC · NFP · Core PCE · CPI · Fed Chair Speech</div></div>
-        <div style="padding:8px;background:var(--bg-panel);border:1px solid rgba(77,166,255,0.15);border-radius:3px"><div style="font-size:9px;color:var(--blue);margin-bottom:5px">📋 STRATEGI NEWS</div><div style="font-size:9px;color:var(--t2);line-height:1.6">Hindari entry 15 menit sebelum · Tunggu spike awal · Entry setelah konfirmasi</div></div>
+
+      <!-- HIGH IMPACT RECENT RELEASES -->
+      <div class="panel">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="panel-title"><span class="accent">◈</span> RECENT HIGH-IMPACT RELEASES</div>
+          <span id="hiStatus" style="font-size:9px;color:var(--t3)">—</span>
+        </div>
+        <div id="highImpactList" style="max-height:310px;overflow-y:auto">
+          <div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Loading…</div>
+        </div>
       </div>
+
     </div>
   </div>
 </div>
@@ -518,37 +608,57 @@
 <!-- ═══ GEOPOLITICAL ═══ -->
 <div id="page-geopolitical" class="page">
   <div class="grid-2">
-    <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> ACTIVE GEOPOLITICAL RISKS</div></div>
-      <div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇷🇺🇺🇦 Russia-Ukraine War</span></div><div class="geo-desc">NATO military aid ongoing. Ceasefire repeatedly failing. Drone escalation. Nuclear risk elevated.</div><div class="geo-impact"><span style="color:var(--green)">▲ STRONGLY BULLISH for Gold</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇺🇸🇨🇳 US-China Trade War</span></div><div class="geo-desc">Tariffs 145% vs 125%. Tech export controls expanding. South China Sea military buildup.</div><div class="geo-impact"><span style="color:var(--green)">▲ BULLISH for Gold</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇱🇵🇸 Middle East Conflict</span></div><div class="geo-desc">Gaza ongoing. Red Sea shipping disruptions. Iran-Israel tension elevated. Oil supply risk.</div><div class="geo-impact"><span style="color:var(--gold)">◆ MODERATELY BULLISH</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇳🇵🇰 India-Pakistan Standoff</span></div><div class="geo-desc">Cross-border shelling increasing. Military reserves mobilized. Both nuclear-armed states.</div><div class="geo-impact"><span style="color:var(--gold)">▲ BULLISH on escalation</span></div></div>
-        <div class="geo-item"><div class="geo-header"><span class="geo-region monitor">MONITOR</span><span class="geo-title">🇹🇼 Taiwan Strait</span></div><div class="geo-desc">PLA exercises continue. TSMC supply chain risk. US carrier deployments in response.</div><div class="geo-impact"><span style="color:var(--gold)">◆ LATENT BULLISH</span></div></div>
+    <div class="panel" style="display:flex;flex-direction:column;gap:0">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="panel-title"><span class="accent">◈</span> LIVE GEOPOLITICAL NEWS</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="geoNewsStatus" style="font-size:9px;color:var(--t3)">Loading...</span>
+          <button onclick="window.refreshGeoNews()" style="font-size:9px;padding:3px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">↻ REFRESH</button>
+        </div>
+      </div>
+      <div id="geoNewsFeed" style="flex:1;overflow-y:auto;max-height:420px">
+        <div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Fetching news...</div>
       </div>
     </div>
-    <div>
-      <div class="panel" style="margin-bottom:8px">
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div class="panel">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="panel-title"><span class="accent">◈</span> AI GEOPOLITICAL ANALYSIS</div>
+          <button onclick="window.runGeoAI()" id="geoAiBtn" style="font-size:9px;padding:3px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">⚡ ANALYZE</button>
+        </div>
+        <div id="geoAiOut" style="padding:10px;font-size:10px;line-height:1.7;color:var(--t2);min-height:80px">
+          <span style="color:var(--t3)">Klik ANALYZE untuk AI summary. Butuh Groq API key (set di tab AI Analysis).</span>
+        </div>
+      </div>
+      <div class="panel">
         <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> RISK MATRIX</div></div>
-        <div style="padding:12px">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
-            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.25);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--t2)">GEO RISK INDEX</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--red)">74</div><div style="font-size:9px;color:var(--red)">HIGH RISK</div></div>
-            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--t2)">SAFE HAVEN</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--green)">+</div><div style="font-size:9px;color:var(--green)">ACTIVE</div></div>
+        <div style="padding:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.25);border-radius:3px;text-align:center">
+              <div style="font-size:9px;color:var(--t2)">GEO RISK INDEX</div>
+              <div id="geoRiskScore" style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--red)">74</div>
+              <div id="geoRiskLabel" style="font-size:9px;color:var(--red)">HIGH RISK</div>
+            </div>
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center">
+              <div style="font-size:9px;color:var(--t2)">SAFE HAVEN</div>
+              <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--green)">+</div>
+              <div style="font-size:9px;color:var(--green)">ACTIVE</div>
+            </div>
           </div>
-          <table class="data-table"><tr><th>Region</th><th>Risk</th><th>Prob.</th><th>Gold</th></tr>
-            <tr><td>E. Europe</td><td style="color:var(--red)">Critical</td><td>HIGH</td><td class="up">+++ BUY</td></tr>
-            <tr><td>US-China</td><td style="color:var(--red)">Critical</td><td>HIGH</td><td class="up">++ BUY</td></tr>
-            <tr><td>Middle East</td><td style="color:var(--gold)">Elevated</td><td>MED</td><td class="up">+ BUY</td></tr>
-            <tr><td>S. Asia</td><td style="color:var(--gold)">Elevated</td><td>MED</td><td class="up">++ BUY</td></tr>
-            <tr><td>E. Asia</td><td style="color:var(--blue)">Moderate</td><td>LOW</td><td style="color:var(--gold)">◆ WATCH</td></tr>
+          <table class="data-table">
+            <tr><th>Region</th><th>Risk</th><th>Trend</th><th>Gold</th></tr>
+            <tr><td>E. Europe</td><td style="color:var(--red)">Critical</td><td>→</td><td class="up">+++ BUY</td></tr>
+            <tr><td>US-China</td><td style="color:var(--red)">Critical</td><td>↑</td><td class="up">++ BUY</td></tr>
+            <tr><td>Middle East</td><td style="color:var(--gold)">Elevated</td><td>→</td><td class="up">+ BUY</td></tr>
+            <tr><td>S. Asia</td><td style="color:var(--gold)">Elevated</td><td>↓</td><td class="up">+ BUY</td></tr>
+            <tr><td>E. Asia</td><td style="color:var(--blue)">Moderate</td><td>→</td><td style="color:var(--gold)">◆ WATCH</td></tr>
           </table>
         </div>
       </div>
       <div class="panel">
         <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CENTRAL BANK GOLD BUYING (tonnes)</div></div>
-        <div style="padding:12px">
-          <div style="height:150px"><canvas id="cbChart"></canvas></div>
+        <div style="padding:10px">
+          <div style="height:120px"><canvas id="cbChart"></canvas></div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px">
             <div style="text-align:center"><div class="stat-label">China PBoC</div><div class="stat-val up">+8T</div></div>
             <div style="text-align:center"><div class="stat-label">India RBI</div><div class="stat-val up">+6.5T</div></div>
