@@ -7,25 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<style>
-.geo-news-item{padding:10px 12px;border-bottom:1px solid var(--border);transition:background .2s}
-.geo-news-item:hover{background:rgba(240,192,64,.04)}
-.geo-news-item:last-child{border-bottom:none}
-.geo-news-tag{display:inline-block;font-size:8px;padding:2px 6px;border-radius:2px;font-weight:700;letter-spacing:1px;margin-right:6px}
-.geo-news-tag.war{background:rgba(255,77,109,.15);color:var(--red);border:1px solid rgba(255,77,109,.3)}
-.geo-news-tag.trade{background:rgba(240,192,64,.12);color:var(--gold);border:1px solid rgba(240,192,64,.3)}
-.geo-news-tag.energy{background:rgba(78,169,255,.12);color:var(--blue);border:1px solid rgba(78,169,255,.3)}
-.geo-news-tag.macro{background:rgba(34,217,138,.1);color:var(--green);border:1px solid rgba(34,217,138,.3)}
-.geo-news-tag.default{background:rgba(180,180,180,.1);color:var(--t2);border:1px solid var(--border)}
-.geo-news-title{font-size:10px;color:var(--t1);line-height:1.4;margin:4px 0 3px}
-.geo-news-meta{font-size:9px;color:var(--t3)}
-.geo-news-impact{font-size:9px;margin-top:4px}
-.ticker-strip{flex:1;overflow:hidden;position:relative;min-width:0}
-.ticker-scroll-wrapper{overflow:hidden;width:100%}
-.ticker-scroll-track{display:flex;align-items:center;animation:tickerScroll 28s linear infinite;width:max-content;will-change:transform}
-.ticker-scroll-track:hover{animation-play-state:paused}
-@keyframes tickerScroll{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="auth.js" defer></script>
 </head>
 <body>
 
@@ -535,57 +518,37 @@
 <!-- ═══ GEOPOLITICAL ═══ -->
 <div id="page-geopolitical" class="page">
   <div class="grid-2">
-    <div class="panel" style="display:flex;flex-direction:column;gap:0">
-      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
-        <div class="panel-title"><span class="accent">◈</span> LIVE GEOPOLITICAL NEWS</div>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span id="geoNewsStatus" style="font-size:9px;color:var(--t3)">Loading...</span>
-          <button onclick="window.refreshGeoNews()" style="font-size:9px;padding:3px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">↻ REFRESH</button>
-        </div>
-      </div>
-      <div id="geoNewsFeed" style="flex:1;overflow-y:auto;max-height:420px">
-        <div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Fetching news...</div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> ACTIVE GEOPOLITICAL RISKS</div></div>
+      <div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇷🇺🇺🇦 Russia-Ukraine War</span></div><div class="geo-desc">NATO military aid ongoing. Ceasefire repeatedly failing. Drone escalation. Nuclear risk elevated.</div><div class="geo-impact"><span style="color:var(--green)">▲ STRONGLY BULLISH for Gold</span></div></div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region critical">CRITICAL</span><span class="geo-title">🇺🇸🇨🇳 US-China Trade War</span></div><div class="geo-desc">Tariffs 145% vs 125%. Tech export controls expanding. South China Sea military buildup.</div><div class="geo-impact"><span style="color:var(--green)">▲ BULLISH for Gold</span></div></div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇱🇵🇸 Middle East Conflict</span></div><div class="geo-desc">Gaza ongoing. Red Sea shipping disruptions. Iran-Israel tension elevated. Oil supply risk.</div><div class="geo-impact"><span style="color:var(--gold)">◆ MODERATELY BULLISH</span></div></div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region watch">WATCH</span><span class="geo-title">🇮🇳🇵🇰 India-Pakistan Standoff</span></div><div class="geo-desc">Cross-border shelling increasing. Military reserves mobilized. Both nuclear-armed states.</div><div class="geo-impact"><span style="color:var(--gold)">▲ BULLISH on escalation</span></div></div>
+        <div class="geo-item"><div class="geo-header"><span class="geo-region monitor">MONITOR</span><span class="geo-title">🇹🇼 Taiwan Strait</span></div><div class="geo-desc">PLA exercises continue. TSMC supply chain risk. US carrier deployments in response.</div><div class="geo-impact"><span style="color:var(--gold)">◆ LATENT BULLISH</span></div></div>
       </div>
     </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      <div class="panel">
-        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
-          <div class="panel-title"><span class="accent">◈</span> AI GEOPOLITICAL ANALYSIS</div>
-          <button onclick="window.runGeoAI()" id="geoAiBtn" style="font-size:9px;padding:3px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">⚡ ANALYZE</button>
-        </div>
-        <div id="geoAiOut" style="padding:10px;font-size:10px;line-height:1.7;color:var(--t2);min-height:80px">
-          <span style="color:var(--t3)">Klik ANALYZE untuk AI summary dampak geopolitical ke gold. Butuh Groq API key (set di tab AI Analysis).</span>
-        </div>
-      </div>
-      <div class="panel">
+    <div>
+      <div class="panel" style="margin-bottom:8px">
         <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> RISK MATRIX</div></div>
-        <div style="padding:10px">
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
-            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.25);border-radius:3px;text-align:center">
-              <div style="font-size:9px;color:var(--t2)">GEO RISK INDEX</div>
-              <div id="geoRiskScore" style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--red)">74</div>
-              <div id="geoRiskLabel" style="font-size:9px;color:var(--red)">HIGH RISK</div>
-            </div>
-            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center">
-              <div style="font-size:9px;color:var(--t2)">SAFE HAVEN</div>
-              <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--green)">+</div>
-              <div style="font-size:9px;color:var(--green)">ACTIVE</div>
-            </div>
+        <div style="padding:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.25);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--t2)">GEO RISK INDEX</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--red)">74</div><div style="font-size:9px;color:var(--red)">HIGH RISK</div></div>
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center"><div style="font-size:9px;color:var(--t2)">SAFE HAVEN</div><div style="font-family:'Syne',sans-serif;font-size:30px;font-weight:800;color:var(--green)">+</div><div style="font-size:9px;color:var(--green)">ACTIVE</div></div>
           </div>
-          <table class="data-table">
-            <tr><th>Region</th><th>Risk</th><th>Trend</th><th>Gold</th></tr>
-            <tr><td>E. Europe</td><td style="color:var(--red)">Critical</td><td>→</td><td class="up">+++ BUY</td></tr>
-            <tr><td>US-China</td><td style="color:var(--red)">Critical</td><td>↑</td><td class="up">++ BUY</td></tr>
-            <tr><td>Middle East</td><td style="color:var(--gold)">Elevated</td><td>→</td><td class="up">+ BUY</td></tr>
-            <tr><td>S. Asia</td><td style="color:var(--gold)">Elevated</td><td>↓</td><td class="up">+ BUY</td></tr>
-            <tr><td>E. Asia</td><td style="color:var(--blue)">Moderate</td><td>→</td><td style="color:var(--gold)">◆ WATCH</td></tr>
+          <table class="data-table"><tr><th>Region</th><th>Risk</th><th>Prob.</th><th>Gold</th></tr>
+            <tr><td>E. Europe</td><td style="color:var(--red)">Critical</td><td>HIGH</td><td class="up">+++ BUY</td></tr>
+            <tr><td>US-China</td><td style="color:var(--red)">Critical</td><td>HIGH</td><td class="up">++ BUY</td></tr>
+            <tr><td>Middle East</td><td style="color:var(--gold)">Elevated</td><td>MED</td><td class="up">+ BUY</td></tr>
+            <tr><td>S. Asia</td><td style="color:var(--gold)">Elevated</td><td>MED</td><td class="up">++ BUY</td></tr>
+            <tr><td>E. Asia</td><td style="color:var(--blue)">Moderate</td><td>LOW</td><td style="color:var(--gold)">◆ WATCH</td></tr>
           </table>
         </div>
       </div>
       <div class="panel">
         <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CENTRAL BANK GOLD BUYING (tonnes)</div></div>
-        <div style="padding:10px">
-          <div style="height:120px"><canvas id="cbChart"></canvas></div>
+        <div style="padding:12px">
+          <div style="height:150px"><canvas id="cbChart"></canvas></div>
           <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px">
             <div style="text-align:center"><div class="stat-label">China PBoC</div><div class="stat-val up">+8T</div></div>
             <div style="text-align:center"><div class="stat-label">India RBI</div><div class="stat-val up">+6.5T</div></div>
@@ -596,3 +559,83 @@
     </div>
   </div>
 </div>
+
+<!-- ═══ LIVE TV ═══ -->
+<div id="page-livetv" class="page">
+  <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+    <div style="padding:6px 14px;background:rgba(255,77,109,0.1);border:1px solid rgba(255,77,109,0.3);border-radius:3px;font-size:10px;color:var(--red);display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span>LIVE STREAMS</div>
+    <div style="padding:6px 14px;background:var(--bg-panel);border:1px solid var(--border);border-radius:3px;font-size:10px;color:var(--t2)">🔊 Click to play audio · Fullscreen available</div>
+  </div>
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span style="width:7px;height:7px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span><span class="accent">GOLD</span> BOOKMAP · CME FUTURES GC</div><span style="font-size:9px;padding:2px 7px;background:rgba(255,77,109,0.15);border:1px solid rgba(255,77,109,0.3);color:var(--red);border-radius:2px">24/7 LIVE</span></div>
+      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;background:#000">
+        <iframe src="https://www.youtube.com/embed/XIyocP-yr9E?autoplay=0&mute=1&rel=0&modestbranding=1" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen loading="lazy"></iframe>
+      </div>
+      <div style="padding:10px 12px;background:var(--bg-card);border-top:1px solid var(--border);font-size:9px;color:var(--t2);line-height:1.5">📊 Bookmap menampilkan <span style="color:var(--gold)">order book heatmap real-time</span> dari CME GC Futures. Cluster order besar = Support/Resistance kuat.</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span style="width:7px;height:7px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span><span class="accent">BLOOMBERG</span> TV · LIVE NEWS</div><span style="font-size:9px;padding:2px 7px;background:rgba(255,77,109,0.15);border:1px solid rgba(255,77,109,0.3);color:var(--red);border-radius:2px">24/7 LIVE</span></div>
+      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;background:#000">
+        <iframe src="https://www.youtube.com/embed/live_stream?channel=UCIALMKvObZNtJ6AmdCLP7Lg&autoplay=0&mute=1&rel=0&modestbranding=1" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen loading="lazy"></iframe>
+      </div>
+      <div style="padding:10px 12px;background:var(--bg-card);border-top:1px solid var(--border);font-size:9px;color:var(--t2);line-height:1.5">📡 Bloomberg TV live — breaking news, Fed commentary, market analysis & wawancara eksklusif fund managers.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ AI ANALYSIS ═══ -->
+<div id="page-ai" class="page">
+  <div class="panel" style="margin-bottom:8px">
+    <div class="panel-header"><div class="panel-title"><span class="accent">🤖</span> GEMINI AI — XAUUSD MARKET ANALYSIS</div><span class="api-status api-load" id="aiStatus">Waiting for key…</span></div>
+    <div style="padding:12px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <input id="geminiKeyInput" type="password" placeholder="Paste Gemini API Key (AIza...)"
+          style="flex:1;min-width:200px;background:var(--bg-card);border:1px solid var(--border);border-radius:3px;padding:9px 12px;color:var(--t1);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none">
+        <button onclick="window.setGeminiKey()" style="padding:9px 18px;background:var(--gold);border:none;border-radius:3px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:2px;color:#050810">ACTIVATE</button>
+        <button onclick="window.renderAIPanel()" style="padding:9px 14px;background:transparent;border:1px solid var(--border);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">↺ REFRESH</button>
+        <span id="geminiKeyStatus" style="font-size:9px;color:var(--green)"></span>
+      </div>
+      <div id="aiAnalysisResult" style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;min-height:220px;display:flex;align-items:center;justify-content:center">
+        <div style="text-align:center;color:var(--t3);padding:30px">
+          <div style="font-size:24px;margin-bottom:10px">🤖</div>
+          <div>Enter Gemini API Key above to enable AI market analysis</div>
+        </div>
+      </div>
+      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Google Gemini 1.5 Flash · Key stored locally in browser</div>
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> LIVE DATA FOR AI</div></div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:6px">
+        <div class="indicator-row"><span class="ind-name">XAU Price</span><span class="ind-val" id="aiXauPrice">—</span></div>
+        <div class="indicator-row"><span class="ind-name">Daily Change</span><span class="ind-val" id="aiXauChg">—</span></div>
+        <div class="indicator-row"><span class="ind-name">EUR/USD</span><span class="ind-val" id="aiEurUsd">—</span></div>
+        <div class="indicator-row"><span class="ind-name">RSI (14)</span><span class="ind-val" id="aiRsi">—</span></div>
+        <div class="indicator-row"><span class="ind-name">EMA 20</span><span class="ind-val" id="aiEma20">—</span></div>
+        <div class="indicator-row"><span class="ind-name">EMA 50</span><span class="ind-val" id="aiEma50">—</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CARA DAPAT GEMINI API KEY (GRATIS)</div></div>
+      <div style="padding:14px;font-size:10px;color:var(--t2);line-height:1.9">
+        1. Buka <span style="color:var(--blue)">aistudio.google.com</span><br>
+        2. Login dengan akun Google<br>
+        3. Klik <span style="color:var(--gold)">"Get API Key"</span> → "Create API key"<br>
+        4. Copy key yang dimulai dengan <span style="color:var(--green)">AIza...</span><br>
+        5. Paste di atas → klik ACTIVATE<br><br>
+        <span style="color:var(--green)">✓ Gratis · 15 req/menit · 1 juta tokens/hari</span><br>
+        <span style="color:var(--t3)">Key disimpan di browser lokal, aman</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /main-content -->
+
+<!-- SCRIPTS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
