@@ -114,7 +114,7 @@ async function yahooQuote(sym) {
 async function fetchQuotes() {
   var symbols = {
     'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X',
-    'GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','US10Y':'^TNX','BTC/USD':'BTC-USD'
+    'GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','US10Y':'^TNX'
   };
   var tickerMap = {
     'XAU/USD':{p:'t-xau',c:'t-xau-chg',dec:2},
@@ -122,8 +122,7 @@ async function fetchQuotes() {
     'EUR/USD':{p:'t-eur',c:'t-eur-chg',dec:4},
     'GBP/USD':{p:'t-gbp',c:'t-gbp-chg',dec:4},
     'USD/JPY':{p:'t-jpy',c:'t-jpy-chg',dec:2},
-    'US10Y':{p:'t-us10',c:'t-us10-chg',dec:3},
-    'BTC/USD':{p:'t-btc',c:'t-btc-chg',dec:0}
+    'US10Y':{p:'t-us10',c:'t-us10-chg',dec:3}
   };
 
   try {
@@ -145,7 +144,7 @@ async function fetchQuotes() {
 
     if (results['XAU/USD']) { state.xau=results['XAU/USD']; updateXAU(); }
     if (results['EUR/USD']) { state.dxy=results['EUR/USD']; updateDXY(); }
-    if (results['BTC/USD']) { state.btc=results['BTC/USD']; updateBTCTicker(); }
+    fetchBTCPrice();
 
     if (anySuccess) {
       setStatus('apiStatusBadge','ok','● LIVE');
@@ -246,7 +245,7 @@ function seriesLabels(series) {
 // ── FETCH SERIES (Yahoo Finance OHLC) ──
 async function fetchSeries(sym, interval, size) {
   size = size||80;
-  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X','DXY':'DX-Y.NYB','BTC/USD':'BTC-USD'};
+  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X','DXY':'EURUSD=X'};
   var tvToYf={'1min':'2m','5min':'5m','15min':'15m','30min':'30m','1h':'1h','4h':'1h','1day':'1d'};
   var yfRange={'2m':'1d','5m':'5d','15m':'5d','30m':'5d','1h':'1mo','1d':'6mo'};
   var yfi=tvToYf[interval]||'1h';
@@ -538,8 +537,8 @@ window.switchPage = function(page, el) {
   if(el) el.classList.add('active');
   if(page==='charts') loadH1Charts();
   if(page==='cot') initCOTCharts();
-  if(page==='geopolitical') { initCBChart(); window.refreshGeoNews(); }
-  if(page==='charts') { loadBTCChart(); }
+  if(page==='geopolitical') { initCBChart(); window.refreshGeoNews && window.refreshGeoNews(); }
+  if(page==='charts') { if(typeof loadBTCChart==='function') loadBTCChart(); }
   if(page==='ai') renderAIPanel();
 };
 
@@ -722,6 +721,218 @@ window.runGeoAI = async function(){
   finally{if(btn){btn.textContent='⚡ ANALYZE';btn.disabled=false;}}
 };
 
+
+// ── BTC via CoinGecko ──
+async function fetchBTCPrice() {
+  try {
+    var url = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true';
+    var r = await fetch(url, {signal: AbortSignal.timeout(5000)});
+    var data = await r.json();
+    if (!data.bitcoin) throw new Error('No BTC data');
+    var price = data.bitcoin.usd;
+    var pct   = data.bitcoin.usd_24h_change;
+    var dir   = pct >= 0;
+    state.btc = {price: price, pct: pct, change: pct};
+    // Ticker update
+    var pEl = document.getElementById('t-btc'), cEl = document.getElementById('t-btc-chg');
+    if (pEl) { pEl.textContent = '$'+price.toLocaleString('en',{maximumFractionDigits:0}); pEl.className='ticker-price '+(dir?'up':'down'); }
+    if (cEl) { cEl.textContent = (dir?'+':'')+pct.toFixed(2)+'%'; cEl.className='ticker-chg '+(dir?'up':'down'); }
+    // Chart page stats
+    var bpEl = document.getElementById('btcPrice');
+    if (bpEl) bpEl.textContent = '$'+price.toLocaleString('en',{maximumFractionDigits:0});
+    var bcEl = document.getElementById('btcChg');
+    if (bcEl) { bcEl.textContent = (dir?'+':'')+pct.toFixed(2)+'%'; bcEl.className='stat-val '+(dir?'up':'down'); }
+  } catch(e) { console.warn('BTC price fetch failed:', e.message); }
+}
+
+var btcChart = null;
+async function loadBTCChart() {
+  var ctx = document.getElementById('btcH1Chart');
+  if (!ctx) return;
+  try {
+    setStatus('btcChartStatus','load','Loading…');
+    // CoinGecko OHLC 1h — last 2 days (48 candles)
+    var url = 'https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=2';
+    var r = await fetch(url, {signal: AbortSignal.timeout(7000)});
+    var raw = await r.json();
+    if (!raw||!raw.length) throw new Error('No OHLC data');
+
+    // raw: [timestamp, open, high, low, close]
+    var series = raw.map(function(c){ return {t:c[0]/1000, o:c[1], h:c[2], l:c[3], c:c[4]}; });
+    state.btcSeries = series;
+    var labels = series.map(function(v){
+      var d = new Date(v.t*1000);
+      return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
+    });
+    var closes = series.map(function(v){ return v.c; });
+
+    if (btcChart) btcChart.destroy();
+    var grad = ctx.getContext('2d').createLinearGradient(0,0,0,260);
+    grad.addColorStop(0,'rgba(168,85,247,0.25)');
+    grad.addColorStop(1,'rgba(168,85,247,0)');
+
+    btcChart = new Chart(ctx, {
+      type:'line',
+      data:{ labels:labels, datasets:[{
+        data:closes, borderColor:'#a855f7', borderWidth:1.5,
+        fill:true, backgroundColor:grad, tension:0.3, pointRadius:0
+      }]},
+      options:{ responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{display:false}},
+        scales:{
+          x:{ticks:{color:'#3d4f6e',font:{size:8},maxTicksLimit:8},grid:{color:'rgba(26,37,64,0.5)'}},
+          y:{ticks:{color:'#3d4f6e',font:{size:8}},grid:{color:'rgba(26,37,64,0.5)'},position:'right'}
+        }
+      }
+    });
+
+    computeBTCSignal(series, closes);
+    setStatus('btcChartStatus','ok','● LIVE');
+  } catch(e) {
+    setStatus('btcChartStatus','err','✕ ERR');
+    var ratEl = document.getElementById('btcRationale');
+    if (ratEl) ratEl.textContent = 'Error: '+e.message+'. CoinGecko mungkin rate-limit, coba lagi.';
+  }
+}
+
+function computeBTCSignal(series, closes) {
+  if (!closes||closes.length < 10) return;
+  var ema20 = calcEMA(closes, Math.min(20, closes.length));
+  var ema50 = calcEMA(closes, Math.min(50, closes.length));
+  var rsi   = calcRSI(closes, Math.min(14, closes.length-1));
+  var atr   = calcATR(series, Math.min(14, series.length-1));
+  var price = closes[closes.length-1];
+  var isBull = ema20 && price > ema20;
+  if (ema20 && ema50) isBull = ema20 > ema50 && price > ema20;
+  if (rsi) { if (rsi > 70) isBull = false; if (rsi < 30) isBull = true; }
+
+  var setup = isBull ? 'MOMENTUM LONG' : 'BREAKDOWN SHORT';
+  if (rsi && rsi < 35) setup = 'OVERSOLD BOUNCE';
+  if (rsi && rsi > 65) setup = 'OVERBOUGHT SHORT';
+
+  var atrV = atr || price * 0.012;
+  var elo  = Math.round(price - atrV*0.3).toLocaleString('en');
+  var ehi  = Math.round(price + atrV*0.3).toLocaleString('en');
+  var sl   = isBull ? Math.round(price - atrV*1.5).toLocaleString('en') : Math.round(price + atrV*1.5).toLocaleString('en');
+  var tp1  = isBull ? Math.round(price + atrV*1.5).toLocaleString('en') : Math.round(price - atrV*1.5).toLocaleString('en');
+  var tp2  = isBull ? Math.round(price + atrV*3.0).toLocaleString('en') : Math.round(price - atrV*3.0).toLocaleString('en');
+  var conf = 60 + (rsi?(isBull?(rsi<50?10:0):(rsi>50?10:0)):0) + (ema20&&ema50?(Math.abs(ema20-ema50)/price>0.005?10:0):0);
+
+  var rat = 'BTC '+(isBull?'bullish':'bearish')+' bias — price '+(isBull?'above':'below')+' EMA20'+
+    (ema50?' & EMA50':'')+'. RSI: '+(rsi?rsi.toFixed(0):'N/A')+'. '+(isBull?'Watch for dip entry.':'Watch for dead-cat bounce entry.');
+
+  var box = document.getElementById('btcSignalBox');
+  if (box) box.className = 'signal-box '+(isBull?'buy':'sell');
+  setEl('btcDir', isBull?'LONG ▲':'SHORT ▼');
+  var dirEl = document.getElementById('btcDir');
+  if (dirEl) dirEl.className = 'signal-label '+(isBull?'buy':'sell');
+  setEl('btcSetup','SETUP: '+setup);
+  setEl('btcEntry','$'+elo+' – $'+ehi);
+  setEl('btcSL','$'+sl);
+  setEl('btcTP1','$'+tp1);
+  setEl('btcTP2','$'+tp2);
+  setEl('btcRR','1:1.5 – 1:3.0');
+  setEl('btcConf',conf+'%');
+  setEl('btcRationale',rat);
+  var rsiEl = document.getElementById('btcRSI');
+  if (rsiEl) { rsiEl.textContent = rsi?rsi.toFixed(1):'—'; rsiEl.className='stat-val '+(rsi&&rsi<35?'up':rsi&&rsi>65?'down':''); }
+  setEl('btcSignalBadge', isBull?'▲ LONG':'▼ SHORT');
+  var badgeEl = document.getElementById('btcSignalBadge');
+  if (badgeEl) badgeEl.className = 'stat-val '+(isBull?'up':'down');
+}
+
+// ── FED WATCH ──
+var FED_MEETINGS = [
+  {label:'Jul 30, 2026'},{label:'Sep 17, 2026'},{label:'Nov 5, 2026'},{label:'Dec 10, 2026'}
+];
+
+window.refreshFedWatch = async function() {
+  renderFedWatchFallback();
+  try {
+    var url='https://www.cmegroup.com/CmeWS/mvc/Quotes/Future/305/G?quoteCodes=null&_='+Date.now();
+    var data=await proxyFetch(url);
+    if(data&&data.quotes) { renderFedWatchFromCME(data.quotes); }
+  } catch(e) { /* keep fallback */ }
+};
+
+function renderFedWatchFromCME(quotes) {
+  var container=document.getElementById('fedWatchBars'); if(!container) return;
+  var html=''; var firstCut=null;
+  quotes.slice(0,4).forEach(function(q,i){
+    var meet=FED_MEETINGS[i]||{label:'Meeting '+(i+1)};
+    var price=parseFloat(q.last)||0;
+    var cutProb=Math.max(0,Math.min(100,100-price)).toFixed(1);
+    var holdProb=(100-cutProb).toFixed(1);
+    if(!firstCut&&cutProb>30){firstCut=cutProb;setEl('fedCutProb',cutProb+'%');}
+    var color=cutProb>60?'var(--green)':cutProb>30?'var(--gold)':'var(--red)';
+    html+=makeFedBar(meet.label,cutProb,holdProb,color);
+  });
+  if(!firstCut)setEl('fedCutProb','<30%');
+  container.innerHTML=html||'<div style="color:var(--t3);font-size:10px;padding:10px">Data tidak tersedia</div>';
+}
+
+function renderFedWatchFallback() {
+  var meetings=[
+    {label:'Jul 30',cut:18,hold:82},
+    {label:'Sep 17',cut:52,hold:48},
+    {label:'Nov 5', cut:71,hold:29},
+    {label:'Dec 10',cut:83,hold:17},
+  ];
+  setEl('fedCutProb',meetings[0].cut+'%');
+  var html=meetings.map(function(m){
+    var color=m.cut>60?'var(--green)':m.cut>30?'var(--gold)':'var(--red)';
+    return makeFedBar(m.label,m.cut,m.hold,color);
+  }).join('');
+  var c=document.getElementById('fedWatchBars'); if(c) c.innerHTML=html;
+}
+
+function makeFedBar(label,cutProb,holdProb,color){
+  return '<div style="margin-bottom:8px">'+
+    '<div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:3px">'+
+      '<span style="color:var(--t2)">'+label+'</span>'+
+      '<span><span style="color:'+color+'">CUT '+cutProb+'%</span> <span style="color:var(--t3)">HOLD '+holdProb+'%</span></span>'+
+    '</div>'+
+    '<div style="display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05)">'+
+      '<div style="width:'+cutProb+'%;background:'+color+';transition:width 0.5s"></div>'+
+      '<div style="flex:1;background:rgba(122,138,170,0.15)"></div>'+
+    '</div></div>';
+}
+
+// ── HIGH IMPACT RELEASES ──
+var RECENT_RELEASES=[
+  {name:'Non-Farm Payrolls (May)',  actual:'139K', forecast:'130K', prev:'147K', beat:true,  date:'Jun 6',  goldImpact:'down'},
+  {name:'Core CPI (May)',           actual:'0.2%', forecast:'0.3%', prev:'0.3%', beat:true,  date:'Jun 11', goldImpact:'up'},
+  {name:'Core PCE (Apr)',           actual:'2.6%', forecast:'2.6%', prev:'2.7%', beat:false, date:'May 30', goldImpact:'up'},
+  {name:'FOMC Rate Decision',       actual:'4.25-4.50%',forecast:'4.25-4.50%',prev:'4.25-4.50%',beat:false,date:'May 7',goldImpact:'neutral'},
+  {name:'GDP Growth Q1 (Final)',    actual:'-0.5%',forecast:'-0.3%',prev:'2.4%',beat:false,  date:'May 29', goldImpact:'up'},
+  {name:'Initial Jobless Claims',   actual:'229K', forecast:'235K', prev:'232K', beat:true,  date:'Jun 12', goldImpact:'down'},
+  {name:'ISM Manufacturing PMI',    actual:'48.7', forecast:'49.5', prev:'49.0', beat:false, date:'Jun 2',  goldImpact:'up'},
+  {name:'Retail Sales (May)',       actual:'0.1%', forecast:'0.3%', prev:'-0.2%',beat:false, date:'Jun 17', goldImpact:'up'},
+];
+
+function renderHighImpact(){
+  var el=document.getElementById('highImpactList'); if(!el) return;
+  var status=document.getElementById('hiStatus'); if(status) status.textContent='Jun 2026';
+  el.innerHTML=RECENT_RELEASES.map(function(r){
+    var beatColor=r.beat?'var(--green)':'var(--red)';
+    var beatLabel=r.beat?'▲ BEAT':'▼ MISS';
+    var goldColor=r.goldImpact==='up'?'var(--green)':r.goldImpact==='down'?'var(--red)':'var(--gold)';
+    var goldLabel=r.goldImpact==='up'?'▲ GOLD+':r.goldImpact==='down'?'▼ GOLD-':'◆ NEUTRAL';
+    return '<div style="padding:9px 12px;border-bottom:1px solid var(--border)">'+
+      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'+
+        '<span style="font-size:10px;color:var(--t1);font-weight:600">'+r.name+'</span>'+
+        '<span style="font-size:9px;color:var(--t3)">'+r.date+'</span>'+
+      '</div>'+
+      '<div style="display:flex;gap:10px;align-items:center">'+
+        '<span style="font-size:9px;color:var(--t3)">A: <span style="color:var(--t1)">'+r.actual+'</span></span>'+
+        '<span style="font-size:9px;color:var(--t3)">F: '+r.forecast+'</span>'+
+        '<span style="font-size:9px;color:var(--t3)">P: '+r.prev+'</span>'+
+        '<span style="margin-left:auto;font-size:9px;font-weight:700;color:'+beatColor+'">'+beatLabel+'</span>'+
+        '<span style="font-size:9px;font-weight:700;color:'+goldColor+'">'+goldLabel+'</span>'+
+      '</div></div>';
+  }).join('');
+}
+
 // ── NEWS ──
 async function fetchNews() {
   var panel=document.getElementById('newsPreview'); if(!panel) return;
@@ -737,233 +948,6 @@ async function fetchNews() {
   }).join('');
 }
 
-
-// ── BTC TICKER UPDATE ──
-function updateBTCTicker() {
-  var b = state.btc; if (!b||!b.price) return;
-  var dir = b.change >= 0;
-  var pEl = document.getElementById('t-btc'), cEl = document.getElementById('t-btc-chg');
-  if (pEl) { pEl.textContent = fmt(b.price, 0); pEl.className = 'ticker-price '+(dir?'up':'down'); }
-  if (cEl) { cEl.textContent = fmtPct(b.pct); cEl.className = 'ticker-chg '+(dir?'up':'down'); }
-  // Update chart stats
-  setEl('btcPrice', '$'+fmt(b.price,0));
-  var chgEl = document.getElementById('btcChg');
-  if (chgEl) { chgEl.textContent = fmtPct(b.pct); chgEl.className = 'stat-val '+(dir?'up':'down'); }
-}
-
-// ── BTC CHART + SIGNAL ──
-var btcChart = null;
-async function loadBTCChart() {
-  try {
-    setStatus('btcChartStatus','load','Loading…');
-    var series = await fetchSeries('BTC/USD','1h',60);
-    if (!series||!series.length) throw new Error('No BTC data');
-    state.btcSeries = series;
-
-    var labels = series.map(function(v){ return new Date(v.t*1000).toLocaleTimeString('en',{hour:'2-digit',minute:'2-digit'}); });
-    var closes = series.map(function(v){ return v.c; });
-
-    var ctx = document.getElementById('btcH1Chart');
-    if (!ctx) return;
-    if (btcChart) btcChart.destroy();
-
-    var grad = ctx.getContext('2d').createLinearGradient(0,0,0,260);
-    grad.addColorStop(0,'rgba(168,85,247,0.3)');
-    grad.addColorStop(1,'rgba(168,85,247,0)');
-
-    btcChart = new Chart(ctx, {
-      type:'line',
-      data:{ labels:labels, datasets:[{ data:closes, borderColor:'#a855f7', borderWidth:1.5, fill:true, backgroundColor:grad, tension:0.3, pointRadius:0 }] },
-      options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} },
-        scales:{ x:{ticks:{color:'#3d4f6e',font:{size:8},maxTicksLimit:8}, grid:{color:'rgba(26,37,64,0.5)'}},
-                 y:{ticks:{color:'#3d4f6e',font:{size:8}}, grid:{color:'rgba(26,37,64,0.5)'}, position:'right'} } }
-    });
-
-    computeBTCSignal(series);
-    setStatus('btcChartStatus','ok','● LIVE');
-  } catch(e) {
-    setStatus('btcChartStatus','err','✕ ERR');
-    console.error('BTC chart:', e);
-  }
-}
-
-function computeBTCSignal(series) {
-  if (!series||series.length < 20) return;
-  var closes = series.map(function(v){return v.c;});
-  var ema20 = calcEMA(closes,20), ema50 = calcEMA(closes,Math.min(50,closes.length));
-  var rsi = calcRSI(closes,14), atr = calcATR(series,14);
-  var price = closes[closes.length-1];
-  var isBull = ema20 && ema50 ? ema20 > ema50 && price > ema20 : price > closes[closes.length-5];
-
-  // RSI filter
-  if (rsi) { if (rsi > 70) isBull = false; if (rsi < 30) isBull = true; }
-
-  var setup = isBull ? 'BREAKOUT SETUP' : 'BREAKDOWN SETUP';
-  if (rsi && rsi < 35) setup = 'OVERSOLD BOUNCE';
-  if (rsi && rsi > 65) setup = 'OVERBOUGHT SHORT';
-
-  var atrV = atr || price * 0.015;
-  var elo = (price - atrV * 0.3).toFixed(0);
-  var ehi = (price + atrV * 0.3).toFixed(0);
-  var sl  = isBull ? (price - atrV * 1.5).toFixed(0) : (price + atrV * 1.5).toFixed(0);
-  var tp1 = isBull ? (price + atrV * 1.5).toFixed(0) : (price - atrV * 1.5).toFixed(0);
-  var tp2 = isBull ? (price + atrV * 3.0).toFixed(0) : (price - atrV * 3.0).toFixed(0);
-  var rr  = '1:1.5 – 1:3.0';
-  var conf = 60 + (rsi ? (isBull ? (rsi<50?10:0) : (rsi>50?10:0)) : 0) + (ema20&&ema50?(Math.abs(ema20-ema50)/price>0.01?10:0):0);
-
-  var rat = 'BTC ' + (isBull?'bullish':'bearish') + ': Price '+(isBull?'above':'below')+' EMA20' +
-    (ema50 ? ' & EMA50' : '') + (rsi ? ', RSI '+rsi.toFixed(0) : '') +
-    (isBull ? '. Look for pullback entries.' : '. Watch for relief rally.');
-
-  var box = document.getElementById('btcSignalBox');
-  if (box) { box.className = 'signal-box '+(isBull?'buy':'sell'); }
-  setEl('btcDir', isBull?'LONG ▲':'SHORT ▼');
-  var dirEl = document.getElementById('btcDir');
-  if (dirEl) dirEl.className = 'signal-label '+(isBull?'buy':'sell');
-  setEl('btcSetup','SETUP: '+setup);
-  setEl('btcEntry','$'+elo+' – $'+ehi);
-  setEl('btcSL','$'+sl);
-  setEl('btcTP1','$'+tp1);
-  setEl('btcTP2','$'+tp2);
-  setEl('btcRR',rr);
-  setEl('btcConf',conf+'%');
-  setEl('btcRationale',rat);
-  var rsiEl = document.getElementById('btcRSI');
-  if (rsiEl) { rsiEl.textContent = rsi?rsi.toFixed(1):'—'; rsiEl.className = 'stat-val '+(rsi<35?'up':rsi>65?'down':''); }
-  setEl('btcSignalBadge', isBull?'▲ LONG':'▼ SHORT');
-  var badgeEl = document.getElementById('btcSignalBadge');
-  if (badgeEl) badgeEl.className = 'stat-val '+(isBull?'up':'down');
-}
-
-// ── FED WATCH ──
-var FED_MEETINGS = [
-  {date:'Jul 30, 2026', label:'Jul 30'},
-  {date:'Sep 17, 2026', label:'Sep 17'},
-  {date:'Nov 5, 2026',  label:'Nov 5'},
-  {date:'Dec 10, 2026', label:'Dec 10'},
-];
-
-window.refreshFedWatch = async function() {
-  var container = document.getElementById('fedWatchBars');
-  if (!container) return;
-
-  // Fetch dari CME via proxy
-  try {
-    var url = 'https://www.cmegroup.com/CmeWS/mvc/Quotes/Future/305/G?quoteCodes=null&_='+Date.now();
-    var data = await proxyFetch(url);
-    // CME data parse — ambil probability fields
-    if (data && data.quotes) {
-      renderFedWatchFromCME(data.quotes);
-      return;
-    }
-  } catch(e) { console.warn('CME fetch failed, using estimate'); }
-
-  // Fallback: estimate berdasarkan current macro data
-  renderFedWatchFallback();
-};
-
-function renderFedWatchFromCME(quotes) {
-  // Parse CME FedWatch format
-  var container = document.getElementById('fedWatchBars');
-  var html = '';
-  var firstCut = null;
-
-  quotes.slice(0,4).forEach(function(q, i) {
-    var meet = FED_MEETINGS[i] || {label:'Meeting '+(i+1)};
-    // CME quotes: last price = probability of no change, implied cut = 100 - last
-    var price = parseFloat(q.last) || 0;
-    var cutProb = Math.max(0, Math.min(100, 100 - price)).toFixed(1);
-    var holdProb = (100 - cutProb).toFixed(1);
-    if (!firstCut && cutProb > 30) { firstCut = cutProb; setEl('fedCutProb', cutProb+'%'); }
-    var color = cutProb > 60 ? 'var(--green)' : cutProb > 30 ? 'var(--gold)' : 'var(--red)';
-    html += makeFedBar(meet.label, cutProb, holdProb, color);
-  });
-
-  if (!firstCut) setEl('fedCutProb', '<30%');
-  if (container) container.innerHTML = html || '<div style="color:var(--t3);font-size:10px;padding:10px">Data tidak tersedia</div>';
-}
-
-function renderFedWatchFallback() {
-  // Static estimates berdasarkan current macro conditions (June 2026)
-  var meetings = [
-    {label:'Jul 30', cut:18, hold:82},
-    {label:'Sep 17', cut:52, hold:48},
-    {label:'Nov 5',  cut:71, hold:29},
-    {label:'Dec 10', cut:83, hold:17},
-  ];
-  setEl('fedCutProb', meetings[0].cut+'%');
-  var html = meetings.map(function(m) {
-    var color = m.cut > 60 ? 'var(--green)' : m.cut > 30 ? 'var(--gold)' : 'var(--red)';
-    return makeFedBar(m.label, m.cut, m.hold, color);
-  }).join('');
-  var container = document.getElementById('fedWatchBars');
-  if (container) container.innerHTML = html;
-}
-
-function makeFedBar(label, cutProb, holdProb, color) {
-  return '<div style="margin-bottom:8px">'+
-    '<div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:3px">'+
-      '<span style="color:var(--t2)">'+label+'</span>'+
-      '<span><span style="color:'+color+'">CUT '+cutProb+'%</span> <span style="color:var(--t3)">HOLD '+holdProb+'%</span></span>'+
-    '</div>'+
-    '<div style="display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05)">'+
-      '<div style="width:'+cutProb+'%;background:'+color+';transition:width 0.5s"></div>'+
-      '<div style="flex:1;background:rgba(122,138,170,0.15)"></div>'+
-    '</div>'+
-  '</div>';
-}
-
-// ── HIGH IMPACT RELEASES ──
-var HIGH_IMPACT_EVENTS = [
-  {name:'Non-Farm Payrolls',    code:'NFP',  freq:'Monthly, 1st Fri'},
-  {name:'Core CPI',             code:'CPI',  freq:'Monthly, ~13th'},
-  {name:'Core PCE Price Index', code:'PCE',  freq:'Monthly, last Fri'},
-  {name:'FOMC Rate Decision',   code:'FOMC', freq:'8x per year'},
-  {name:'GDP Growth Rate',      code:'GDP',  freq:'Quarterly'},
-  {name:'Initial Jobless Claims',code:'IJC', freq:'Weekly, Thu'},
-  {name:'ISM Manufacturing PMI',code:'ISM',  freq:'Monthly, 1st business day'},
-  {name:'Retail Sales',         code:'RET',  freq:'Monthly, ~15th'},
-];
-
-// Hardcoded recent releases (update manual setiap bulan)
-var RECENT_RELEASES = [
-  {name:'Non-Farm Payrolls (May)',   actual:'139K', forecast:'130K', prev:'147K', beat:true,  date:'Jun 6',  goldImpact:'down', code:'NFP'},
-  {name:'Core CPI (May)',            actual:'0.2%', forecast:'0.3%', prev:'0.3%', beat:true,  date:'Jun 11', goldImpact:'up',   code:'CPI'},
-  {name:'Core PCE (Apr)',            actual:'2.6%', forecast:'2.6%', prev:'2.7%', beat:false, date:'May 30', goldImpact:'up',   code:'PCE'},
-  {name:'FOMC Rate Decision',        actual:'4.25-4.50%','forecast':'4.25-4.50%',prev:'4.25-4.50%',beat:false,date:'May 7',goldImpact:'neutral',code:'FOMC'},
-  {name:'GDP Growth Q1 (Final)',     actual:'-0.5%',forecast:'-0.3%',prev:'2.4%',beat:false,  date:'May 29', goldImpact:'up',   code:'GDP'},
-  {name:'Initial Jobless Claims',    actual:'229K', forecast:'235K', prev:'232K', beat:true,  date:'Jun 12', goldImpact:'down', code:'IJC'},
-  {name:'ISM Manufacturing PMI',     actual:'48.7', forecast:'49.5', prev:'49.0', beat:false, date:'Jun 2',  goldImpact:'up',   code:'ISM'},
-  {name:'Retail Sales (May)',        actual:'0.1%', forecast:'0.3%', prev:'-0.2%',beat:false, date:'Jun 17', goldImpact:'up',   code:'RET'},
-];
-
-function renderHighImpact() {
-  var el = document.getElementById('highImpactList');
-  var status = document.getElementById('hiStatus');
-  if (!el) return;
-  if (status) status.textContent = 'Updated Jun 2026';
-
-  el.innerHTML = RECENT_RELEASES.map(function(r) {
-    var beatColor = r.beat ? 'var(--green)' : 'var(--red)';
-    var beatLabel = r.beat ? '▲ BEAT' : '▼ MISS';
-    var goldColor = r.goldImpact === 'up' ? 'var(--green)' : r.goldImpact === 'down' ? 'var(--red)' : 'var(--gold)';
-    var goldLabel = r.goldImpact === 'up' ? '▲ GOLD+' : r.goldImpact === 'down' ? '▼ GOLD-' : '◆ NEUTRAL';
-    return '<div style="padding:9px 12px;border-bottom:1px solid var(--border)">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'+
-        '<span style="font-size:10px;color:var(--t1);font-weight:600">'+r.name+'</span>'+
-        '<span style="font-size:9px;color:var(--t3)">'+r.date+'</span>'+
-      '</div>'+
-      '<div style="display:flex;gap:10px;align-items:center">'+
-        '<span style="font-size:9px;color:var(--t3)">A: <span style="color:var(--t1)">'+r.actual+'</span></span>'+
-        '<span style="font-size:9px;color:var(--t3)">F: '+r.forecast+'</span>'+
-        '<span style="font-size:9px;color:var(--t3)">P: '+r.prev+'</span>'+
-        '<span style="margin-left:auto;font-size:9px;font-weight:700;color:'+beatColor+'">'+beatLabel+'</span>'+
-        '<span style="font-size:9px;font-weight:700;color:'+goldColor+'">'+goldLabel+'</span>'+
-      '</div>'+
-    '</div>';
-  }).join('');
-}
-
 // ── INIT ──
 async function init() {
   updateMarketBanner();
@@ -974,6 +958,7 @@ async function init() {
   loadBTCChart();
   window.refreshFedWatch();
   setInterval(fetchQuotes, 60000);
+  setInterval(fetchBTCPrice, 60000);
   setInterval(function(){loadMainChart(state.interval);}, 300000);
   setInterval(loadBTCChart, 300000);
 }
