@@ -738,22 +738,22 @@
 <!-- ═══ AI ANALYSIS ═══ -->
 <div id="page-ai" class="page">
   <div class="panel" style="margin-bottom:8px">
-    <div class="panel-header"><div class="panel-title"><span class="accent">🤖</span> GEMINI AI — XAUUSD MARKET ANALYSIS</div><span class="api-status api-load" id="aiStatus">Waiting for key…</span></div>
+    <div class="panel-header"><div class="panel-title"><span class="accent">🤖</span> GROQ AI — XAUUSD MARKET ANALYSIS</div><span class="api-status api-load" id="aiStatus">Waiting for key…</span></div>
     <div style="padding:12px">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
-        <input id="geminiKeyInput" type="password" placeholder="Paste Gemini API Key (AIza...)"
+        <input id="groqKeyInput" type="password" placeholder="Paste Groq API Key (gsk_...)"
           style="flex:1;min-width:200px;background:var(--bg-card);border:1px solid var(--border);border-radius:3px;padding:9px 12px;color:var(--t1);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none">
-        <button onclick="window.setGeminiKey()" style="padding:9px 18px;background:var(--gold);border:none;border-radius:3px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:2px;color:#050810">ACTIVATE</button>
+        <button onclick="window.setGroqKey()" style="padding:9px 18px;background:var(--gold);border:none;border-radius:3px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:2px;color:#050810">ACTIVATE</button>
         <button onclick="window.renderAIPanel()" style="padding:9px 14px;background:transparent;border:1px solid var(--border);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">↺ REFRESH</button>
-        <span id="geminiKeyStatus" style="font-size:9px;color:var(--green)"></span>
+        <span id="groqKeyStatus" style="font-size:9px;color:var(--green)"></span>
       </div>
       <div id="aiAnalysisResult" style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;min-height:220px;display:flex;align-items:center;justify-content:center">
         <div style="text-align:center;color:var(--t3);padding:30px">
           <div style="font-size:24px;margin-bottom:10px">🤖</div>
-          <div>Enter Gemini API Key above to enable AI market analysis</div>
+          <div>Enter Groq API Key above to enable AI market analysis</div>
         </div>
       </div>
-      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Google Gemini 1.5 Flash · Key stored locally in browser</div>
+      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Groq · llama-3.3-70b-versatile · Key stored locally in browser</div>
     </div>
   </div>
   <div class="grid-2">
@@ -762,21 +762,21 @@
       <div style="padding:12px;display:flex;flex-direction:column;gap:6px">
         <div class="indicator-row"><span class="ind-name">XAU Price</span><span class="ind-val" id="aiXauPrice">—</span></div>
         <div class="indicator-row"><span class="ind-name">Daily Change</span><span class="ind-val" id="aiXauChg">—</span></div>
-        <div class="indicator-row"><span class="ind-name">EUR/USD</span><span class="ind-val" id="aiEurUsd">—</span></div>
+        <div class="indicator-row"><span class="ind-name">DXY</span><span class="ind-val" id="aiEurUsd">—</span></div>
         <div class="indicator-row"><span class="ind-name">RSI (14)</span><span class="ind-val" id="aiRsi">—</span></div>
         <div class="indicator-row"><span class="ind-name">EMA 20</span><span class="ind-val" id="aiEma20">—</span></div>
         <div class="indicator-row"><span class="ind-name">EMA 50</span><span class="ind-val" id="aiEma50">—</span></div>
       </div>
     </div>
     <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CARA DAPAT GEMINI API KEY (GRATIS)</div></div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CARA DAPAT GROQ API KEY (GRATIS)</div></div>
       <div style="padding:14px;font-size:10px;color:var(--t2);line-height:1.9">
-        1. Buka <span style="color:var(--blue)">aistudio.google.com</span><br>
-        2. Login dengan akun Google<br>
-        3. Klik <span style="color:var(--gold)">"Get API Key"</span> → "Create API key"<br>
-        4. Copy key yang dimulai dengan <span style="color:var(--green)">AIza...</span><br>
+        1. Buka <span style="color:var(--blue)">console.groq.com</span><br>
+        2. Daftar / login akun<br>
+        3. Klik <span style="color:var(--gold)">"API Keys"</span> → "Create API key"<br>
+        4. Copy key yang dimulai dengan <span style="color:var(--green)">gsk_...</span><br>
         5. Paste di atas → klik ACTIVATE<br><br>
-        <span style="color:var(--green)">✓ Gratis · 15 req/menit · 1 juta tokens/hari</span><br>
+        <span style="color:var(--green)">✓ Gratis · Super cepat (LPU) · 14.400 req/hari</span><br>
         <span style="color:var(--t3)">Key disimpan di browser lokal, aman</span>
       </div>
     </div>
