@@ -564,8 +564,6 @@ window.setCalFilter = function(type, el) {
 };
 
 // ── GROQ AI ──
-var GROQ_KEY = '';
-var GROQ_MODEL = 'llama-3.3-70b-versatile';
 
 async function groqChat(prompt) {
   var key = GROQ_KEY || localStorage.getItem('dfxai_groq') || '';
@@ -751,14 +749,18 @@ async function loadBTCChart() {
   if (!ctx) return;
   try {
     setStatus('btcChartStatus','load','Loading…');
-    // CoinGecko OHLC 1h — last 2 days (48 candles)
-    var url = 'https://api.coingecko.com/api/v3/coins/bitcoin/ohlc?vs_currency=usd&days=2';
-    var r = await fetch(url, {signal: AbortSignal.timeout(7000)});
+    // CoinGecko market_chart - gratis tanpa API key, interval auto 1h untuk 2 hari
+    var url = 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=2&interval=hourly';
+    var r = await fetch(url, {signal: AbortSignal.timeout(8000), headers:{'Accept':'application/json'}});
+    if (!r.ok) throw new Error('HTTP '+r.status);
     var raw = await r.json();
-    if (!raw||!raw.length) throw new Error('No OHLC data');
+    if (!raw||!raw.prices||!raw.prices.length) throw new Error('No data');
 
-    // raw: [timestamp, open, high, low, close]
-    var series = raw.map(function(c){ return {t:c[0]/1000, o:c[1], h:c[2], l:c[3], c:c[4]}; });
+    // raw.prices: [[timestamp, price], ...]
+    var prices = raw.prices;
+    var series = prices.map(function(p,i){
+      return {t:p[0]/1000, o:p[1], h:p[1], l:p[1], c:p[1]};
+    });
     state.btcSeries = series;
     var labels = series.map(function(v){
       var d = new Date(v.t*1000);
