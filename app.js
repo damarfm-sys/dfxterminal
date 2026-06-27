@@ -1,1040 +1,829 @@
-// DFXAi Terminal - App Logic
-'use strict';
-
-// ── CONFIG ──
-var TD_KEY  = 'a0680ea88b934543be5eaab23f518f6d';
-var AV_KEY  = 'CVRA2AHLUR4OWPY4';
-var GROQ_KEY = ''; // Set via UI
-var GROQ_MODEL = 'llama-3.3-70b-versatile';
-var GEMINI_KEY = ''; // legacy - unused
-
-// ── STATE ──
-var state = { xau:{}, dxy:{}, xauSeries:[], dxySeries:[], interval:'1h' };
-var charts = {};
-
-// ── PROXIES ──
-var PROXIES = [
-  function(u){ return 'https://corsproxy.io/?'+encodeURIComponent(u); },
-  function(u){ return 'https://api.allorigins.win/raw?url='+encodeURIComponent(u); },
-  function(u){ return u; }
-];
-var pIdx = 0;
-
-async function proxyFetch(url) {
-  for (var i=0; i<PROXIES.length; i++) {
-    var idx = (pIdx+i) % PROXIES.length;
-    try {
-      var r = await fetch(PROXIES[idx](url), {signal: AbortSignal.timeout(8000)});
-      if (!r.ok) continue;
-      var d = await r.json();
-      pIdx = idx;
-      return d;
-    } catch(e) { continue; }
-  }
-  throw new Error('All proxies failed');
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>DFXAi Terminal — XAUUSD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="auth.js" defer></script>
+<style>
+/* ── TICKER SCROLL (CSS animation, tidak ganggu layout) ── */
+.ticker-strip {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+  mask-image: linear-gradient(to right, transparent 0%, black 4%, black 96%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, transparent 0%, black 4%, black 96%, transparent 100%);
 }
+.ticker-track {
+  display: inline-flex;
+  align-items: center;
+  gap: 18px;
+  white-space: nowrap;
+  animation: tickerScroll 35s linear infinite;
+  will-change: transform;
+}
+.ticker-track:hover { animation-play-state: paused; }
+@keyframes tickerScroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.ticker-sep { color: var(--t3); font-size: 8px; }
 
-// ── UTILS ──
-function fmt(n, d) {
-  d = d===undefined ? 2 : d;
-  if (n==null||isNaN(n)) return '—';
-  return parseFloat(n).toFixed(d).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-function fmtPct(n) {
-  if (n==null||isNaN(n)) return '—';
-  var v = parseFloat(n);
-  return (v>=0?'+':'')+v.toFixed(2)+'%';
-}
-function setEl(id, val) {
-  var e = document.getElementById(id);
-  if (e) e.textContent = val;
-}
-function setStatus(id, type, txt) {
-  var e = document.getElementById(id);
-  if (!e) return;
-  e.className = 'api-status api-'+type;
-  e.textContent = txt;
-}
+/* ── GEO NEWS ── */
+.geo-news-item{padding:10px 12px;border-bottom:1px solid var(--border);transition:background .2s}
+.geo-news-item:hover{background:rgba(240,192,64,.04)}
+.geo-news-item:last-child{border-bottom:none}
+.geo-news-tag{display:inline-block;font-size:8px;padding:2px 6px;border-radius:2px;font-weight:700;letter-spacing:1px;margin-right:6px}
+.geo-news-tag.war{background:rgba(255,77,109,.15);color:var(--red);border:1px solid rgba(255,77,109,.3)}
+.geo-news-tag.trade{background:rgba(240,192,64,.12);color:var(--gold);border:1px solid rgba(240,192,64,.3)}
+.geo-news-tag.energy{background:rgba(78,169,255,.12);color:var(--blue);border:1px solid rgba(78,169,255,.3)}
+.geo-news-tag.macro{background:rgba(34,217,138,.1);color:var(--green);border:1px solid rgba(34,217,138,.3)}
+.geo-news-tag.default{background:rgba(180,180,180,.1);color:var(--t2);border:1px solid var(--border)}
+.geo-news-title{font-size:10px;color:var(--t1);line-height:1.4;margin:4px 0 3px}
+.geo-news-meta{font-size:9px;color:var(--t3)}
+.geo-news-impact{font-size:9px;margin-top:4px}
+</style>
+</head>
+<body>
 
-// ── CLOCK ──
-function updateClock() {
-  var n = new Date();
-  var p = function(x){ return String(x).padStart(2,'0'); };
-  setEl('clockDisplay', p(n.getUTCHours())+':'+p(n.getUTCMinutes())+':'+p(n.getUTCSeconds())+' UTC');
-}
-setInterval(updateClock, 1000);
-updateClock();
+<!-- AUTH OVERLAY -->
+<div id="authOverlay">
+  <div class="auth-wrap">
+    <div class="auth-logo">
+      <div class="auth-logo-main"><div class="auth-logo-dot"></div>DFXAi<span style="color:var(--t2);font-weight:400"> TERMINAL</span></div>
+      <div class="auth-logo-sub">Professional XAUUSD Trading Platform</div>
+    </div>
+    <div class="auth-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tabLogin" onclick="window.switchAuthTab('login')">◈ LOGIN</button>
+        <button class="auth-tab" id="tabRegister" onclick="window.switchAuthTab('register')">◈ REGISTER</button>
+        <button class="auth-tab" id="tabReset" onclick="window.switchAuthTab('reset')" style="font-size:9px">◈ RESET</button>
+      </div>
+      <div class="auth-body">
+        <div class="auth-panel active" id="panelLogin">
+          <div class="auth-field"><label class="auth-label">Email</label><input class="auth-input" id="loginEmail" type="email" placeholder="your@email.com" autocomplete="email"></div>
+          <div class="auth-field"><label class="auth-label">Password</label><input class="auth-input" id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password"></div>
+          <div class="auth-msg error" id="loginMsg"></div>
+          <button class="auth-btn" id="loginBtn" onclick="window.authLogin()">ACCESS TERMINAL</button>
+        </div>
+        <div class="auth-panel" id="panelRegister">
+          <div class="auth-field"><label class="auth-label">Full Name</label><input class="auth-input" id="regName" type="text" placeholder="Your Name"></div>
+          <div class="auth-field"><label class="auth-label">Email</label><input class="auth-input" id="regEmail" type="email" placeholder="your@email.com"></div>
+          <div class="auth-field"><label class="auth-label">Password <span style="color:var(--t3);font-size:8px">(min 8 chars)</span></label><input class="auth-input" id="regPassword" type="password" placeholder="••••••••"></div>
+          <div class="auth-field"><label class="auth-label">Confirm Password</label><input class="auth-input" id="regConfirm" type="password" placeholder="••••••••"></div>
+          <div class="auth-msg" id="registerMsg"></div>
+          <button class="auth-btn" id="registerBtn" onclick="window.authRegister()">CREATE ACCOUNT</button>
+        </div>
+        <div class="auth-panel" id="panelReset">
+          <div style="font-size:10px;color:var(--t2);line-height:1.6;padding:4px 0">Enter your email to receive a password reset link.</div>
+          <div class="auth-field"><label class="auth-label">Email</label><input class="auth-input" id="resetEmail" type="email" placeholder="your@email.com"></div>
+          <div class="auth-msg" id="resetMsg"></div>
+          <button class="auth-btn" id="resetBtn" onclick="window.authReset()">SEND RESET LINK</button>
+          <button class="auth-btn sec" onclick="window.switchAuthTab('login')" style="margin-top:4px">← Back to Login</button>
+        </div>
+      </div>
+      <div class="auth-footer">🔒 Secured by Supabase · DFXAi Terminal v17</div>
+    </div>
+  </div>
+</div>
 
-// ── MARKET STATUS ──
-function isMarketOpen() {
-  var n = new Date(), day = n.getUTCDay(), h = n.getUTCHours()*60+n.getUTCMinutes();
-  if (day===0||day===6) return false;
-  if (day===5 && h>=21*60) return false;
-  return true;
-}
-function getNextOpen() {
-  var n=new Date(), day=n.getUTCDay();
-  var d = day===0?1:day===6?2:(day===5&&n.getUTCHours()>=21)?3:0;
-  if (d===0) return '';
-  var next=new Date(n); next.setUTCDate(next.getUTCDate()+d); next.setUTCHours(0,0,0,0);
-  var diff=next-n, hh=Math.floor(diff/3600000), mm=Math.floor((diff%3600000)/60000);
-  return 'Next open: Monday 00:00 UTC (in '+hh+'h '+mm+'m)';
-}
-function updateMarketBanner() {
-  var b=document.getElementById('marketBanner'),t=document.getElementById('marketBannerText'),nx=document.getElementById('marketNextOpen');
-  if (!b) return;
-  b.style.display='flex';
-  if (isMarketOpen()) {
-    b.className='open'; b.querySelector('.mb-icon').textContent='🟢';
-    t.textContent='MARKET OPEN — Live data active'; nx.textContent='';
-  } else {
-    b.className=''; b.querySelector('.mb-icon').textContent='🔴';
-    var day=new Date().getUTCDay();
-    t.textContent='MARKET CLOSED — '+(day===0||day===6?'Weekend':'After Hours')+' · Showing cached data';
-    nx.textContent=getNextOpen();
-  }
-}
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo"><div class="logo-dot"></div>DFXAi<span style="color:var(--t2);font-weight:400"> TERMINAL</span></div>
+  <div class="ticker-strip">
+    <div class="ticker-track" id="tickerTrack">
+      <span class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau">—</span><span class="ticker-chg" id="t-xau-chg">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price" id="t-xag">—</span><span class="ticker-chg" id="t-xag-chg">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">DXY</span><span class="ticker-price" id="t-eur">—</span><span class="ticker-chg" id="t-eur-chg">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price" id="t-gbp">—</span><span class="ticker-chg" id="t-gbp-chg">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price" id="t-jpy">—</span><span class="ticker-chg" id="t-jpy-chg">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10">—</span><span class="ticker-chg" id="t-us10-chg">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">BTC/USD</span><span class="ticker-price" id="t-btc">—</span><span class="ticker-chg" id="t-btc-chg">—</span></span>
+      <!-- clone untuk seamless loop -->
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau-c">—</span><span class="ticker-chg" id="t-xau-chg-c">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">XAG/USD</span><span class="ticker-price" id="t-xag-c">—</span><span class="ticker-chg" id="t-xag-chg-c">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">DXY</span><span class="ticker-price" id="t-eur-c">—</span><span class="ticker-chg" id="t-eur-chg-c">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">GBP/USD</span><span class="ticker-price" id="t-gbp-c">—</span><span class="ticker-chg" id="t-gbp-chg-c">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">USD/JPY</span><span class="ticker-price" id="t-jpy-c">—</span><span class="ticker-chg" id="t-jpy-chg-c">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10-c">—</span><span class="ticker-chg" id="t-us10-chg-c">—</span></span>
+      <span class="ticker-sep">◆</span>
+      <span class="ticker-item"><span class="ticker-sym">BTC/USD</span><span class="ticker-price" id="t-btc-c">—</span><span class="ticker-chg" id="t-btc-chg-c">—</span></span>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <button id="userMenuBtn" onclick="window.toggleUserMenu()"><span id="userEmailDisplay">—</span> ▾</button>
+    <div id="userMenuDropdown">
+      <div class="user-menu-item" id="userMenuEmail" style="color:var(--t3);cursor:default;font-size:9px">—</div>
+      <div class="user-menu-div"></div>
+      <div class="user-menu-item danger" onclick="window.authLogout()">🚪 &nbsp;Logout</div>
+    </div>
+    <span class="api-status api-load" id="apiStatusBadge">⟳ CONNECTING</span>
+    <div class="live-badge"><div class="live-dot"></div>LIVE</div>
+    <div style="color:var(--t2);font-size:11px" id="clockDisplay">--:--:-- UTC</div>
+  </div>
+</div>
 
-// ── CACHE ──
-var CACHE_KEY='dfxai_data';
-function saveCache(d){ try{localStorage.setItem(CACHE_KEY,JSON.stringify({ts:Date.now(),data:d}));}catch(e){} }
-function loadCache(){ try{var r=localStorage.getItem(CACHE_KEY);return r?JSON.parse(r):null;}catch(e){return null;} }
+<!-- NAV -->
+<div class="nav-tabs">
+  <div class="tab active" onclick="window.switchPage('dashboard',this)">◈ Dashboard</div>
+  <div class="tab" onclick="window.switchPage('charts',this)">◈ Charts</div>
+  <div class="tab" onclick="window.switchPage('signals',this)">◈ Signals</div>
+  <div class="tab" onclick="window.switchPage('cot',this)">◈ COT Data</div>
+  <div class="tab" onclick="window.switchPage('calendar',this)">◈ Econ Calendar</div>
+  <div class="tab" onclick="window.switchPage('sentiment',this)">◈ Sentiment</div>
+  <div class="tab" onclick="window.switchPage('geopolitical',this)">◈ Geopolitical</div>
+  <div class="tab" onclick="window.switchPage('livetv',this)">📺 Live TV</div>
+  <div class="tab" onclick="window.switchPage('ai',this)">🤖 AI Analysis</div>
+</div>
 
-// ── YAHOO FINANCE QUOTE ──
-async function yahooQuote(sym) {
-  var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(sym)+'?interval=1d&range=2d';
-  var d = await proxyFetch(url);
-  var meta = d&&d.chart&&d.chart.result&&d.chart.result[0]&&d.chart.result[0].meta;
-  if (!meta) throw new Error('No data: '+sym);
-  var price=meta.regularMarketPrice, prev=meta.chartPreviousClose||meta.previousClose||price;
-  return { price:price, open:meta.regularMarketOpen||price, high:meta.regularMarketDayHigh||price,
-    low:meta.regularMarketDayLow||price, prev:prev, change:price-prev, pct:(price-prev)/prev*100 };
-}
+<!-- MARKET BANNER -->
+<div id="marketBanner" style="display:none">
+  <span class="mb-icon">🔴</span>
+  <span id="marketBannerText">MARKET CLOSED</span>
+  <span class="mb-next" id="marketNextOpen"></span>
+</div>
 
-// ── FETCH ALL QUOTES ──
-async function fetchQuotes() {
-  var symbols = {
-    'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X',
-    'GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','US10Y':'^TNX'
-  };
-  var tickerMap = {
-    'XAU/USD':{p:'t-xau',c:'t-xau-chg',dec:2},
-    'XAG/USD':{p:'t-xag',c:'t-xag-chg',dec:2},
-    'EUR/USD':{p:'t-eur',c:'t-eur-chg',dec:4},
-    'GBP/USD':{p:'t-gbp',c:'t-gbp-chg',dec:4},
-    'USD/JPY':{p:'t-jpy',c:'t-jpy-chg',dec:2},
-    'US10Y':{p:'t-us10',c:'t-us10-chg',dec:3}
-  };
+<div class="main-content">
 
-  try {
-    var results = {};
-    await Promise.allSettled(Object.entries(symbols).map(async function(kv) {
-      try { results[kv[0]] = await yahooQuote(kv[1]); } catch(e) { console.warn(kv[0],e.message); }
-    }));
+<!-- ═══ DASHBOARD ═══ -->
+<div id="page-dashboard" class="page active">
+  <div class="grid-4" style="margin-bottom:8px">
+    <!-- XAU HERO -->
+    <div class="panel col-span-2">
+      <div class="panel-header">
+        <div class="panel-title"><span class="accent">XAU</span>/USD · SPOT GOLD</div>
+        <span style="font-size:9px;color:var(--t3)" id="xauLastUpdate">Fetching…</span>
+      </div>
+      <div class="price-hero">
+        <div class="price-main" id="xauPrice">—</div>
+        <div class="price-change-big up" id="xauChgBig">—</div>
+      </div>
+      <div class="price-stats">
+        <div><div class="stat-label">Open</div><div class="stat-val" id="xauOpen">—</div></div>
+        <div><div class="stat-label">High</div><div class="stat-val up" id="xauHigh">—</div></div>
+        <div><div class="stat-label">Low</div><div class="stat-val down" id="xauLow">—</div></div>
+        <div><div class="stat-label">Prev Close</div><div class="stat-val" id="xauPrev">—</div></div>
+        <div><div class="stat-label">Change %</div><div class="stat-val" id="xauPct">—</div></div>
+      </div>
+    </div>
+    <!-- DXY -->
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">EUR/USD</span> · DXY Proxy</div></div>
+      <div style="padding:12px">
+        <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px">
+          <span style="font-family:'Syne',sans-serif;font-size:26px;font-weight:800;color:var(--blue)" id="dxyPrice">—</span>
+          <span id="dxyChg" style="font-size:12px">—</span>
+        </div>
+        <div style="height:80px"><canvas id="dxyMiniChart"></canvas></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+          <div><div class="stat-label">High</div><div class="stat-val" id="dxyHigh">—</div></div>
+          <div><div class="stat-label">Low</div><div class="stat-val" id="dxyLow">—</div></div>
+          <div><div class="stat-label">Open</div><div class="stat-val" id="dxyOpen">—</div></div>
+          <div><div class="stat-label">Prev</div><div class="stat-val" id="dxyPrev">—</div></div>
+        </div>
+      </div>
+    </div>
+    <!-- SIGNAL -->
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> TODAY'S SIGNAL</div><span style="font-size:9px;color:var(--t3)" id="signalDate">—</span></div>
+      <div style="padding:12px">
+        <div class="signal-box buy" id="dashSignalBox">
+          <div class="signal-label buy" id="signalDir">—</div>
+          <div class="signal-row"><span class="signal-key">Entry</span><span class="signal-val up" id="sigEntry">Computing…</span></div>
+          <div class="signal-row"><span class="signal-key">Target 1</span><span class="signal-val up" id="sigTP1">—</span></div>
+          <div class="signal-row"><span class="signal-key">Target 2</span><span class="signal-val up" id="sigTP2">—</span></div>
+          <div class="signal-row"><span class="signal-key">Stop Loss</span><span class="signal-val down" id="sigSL">—</span></div>
+          <div class="signal-row"><span class="signal-key">R:R</span><span class="signal-val" style="color:var(--gold)" id="sigRR">—</span></div>
+        </div>
+        <div style="margin-top:10px;padding:8px;background:var(--bg-card);border-radius:3px;border-left:2px solid var(--gold)">
+          <div style="font-size:9px;color:var(--t2);line-height:1.6" id="signalRationale">Analyzing…</div>
+        </div>
+      </div>
+    </div>
+  </div>
 
-    var anySuccess = false;
-    Object.entries(tickerMap).forEach(function(kv) {
-      var sym=kv[0], cfg=kv[1], q=results[sym];
-      if (!q||!q.price) return;
-      anySuccess = true;
-      var dir=q.change>=0;
-      var pEl=document.getElementById(cfg.p), cEl=document.getElementById(cfg.c);
-      if (pEl) { pEl.textContent=fmt(q.price,cfg.dec); pEl.className='ticker-price '+(dir?'up':'down'); }
-      if (cEl) { cEl.textContent=fmtPct(q.pct); cEl.className='ticker-chg '+(dir?'up':'down'); }
+  <!-- CHART + LEVELS -->
+  <div class="grid-4" style="margin-bottom:8px">
+    <div class="panel col-span-3">
+      <div class="panel-header">
+        <div class="panel-title"><span class="accent">XAUUSD</span> · LIVE CHART</div>
+        <div style="display:flex;gap:6px">
+          <span class="tab" style="padding:3px 8px;font-size:9px" onclick="window.changeInterval('1min',this)">1M</span>
+          <span class="tab" style="padding:3px 8px;font-size:9px" onclick="window.changeInterval('15min',this)">15M</span>
+          <span class="tab active" style="padding:3px 8px;font-size:9px" onclick="window.changeInterval('1h',this)">1H</span>
+          <span class="tab" style="padding:3px 8px;font-size:9px" onclick="window.changeInterval('4h',this)">4H</span>
+          <span class="tab" style="padding:3px 8px;font-size:9px" onclick="window.changeInterval('1day',this)">D1</span>
+        </div>
+      </div>
+      <div class="chart-wrap" style="height:260px"><canvas id="xauMainChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> KEY LEVELS</div></div>
+      <div style="padding:12px">
+        <div class="level-row"><span class="level-type res">RES 3</span><span class="level-price" style="color:var(--red)" id="lvlR3">—</span><span class="level-note">ATH Zone</span></div>
+        <div class="level-row"><span class="level-type res">RES 2</span><span class="level-price" style="color:var(--red)" id="lvlR2">—</span><span class="level-note">Weekly High</span></div>
+        <div class="level-row"><span class="level-type res">RES 1</span><span class="level-price" style="color:var(--red)" id="lvlR1">—</span><span class="level-note">Daily High</span></div>
+        <div class="level-row" style="border:1px solid rgba(6,214,214,0.3);border-radius:3px;padding:7px">
+          <span class="level-type current">PRICE</span><span class="level-price" style="color:var(--cyan)" id="lvlNow">—</span><span class="level-note" style="color:var(--cyan)">NOW</span>
+        </div>
+        <div class="level-row"><span class="level-type pivot">PIVOT</span><span class="level-price" style="color:var(--gold)" id="lvlPivot">—</span><span class="level-note">Daily Pivot</span></div>
+        <div class="level-row"><span class="level-type sup">SUP 1</span><span class="level-price" style="color:var(--green)" id="lvlS1">—</span><span class="level-note">Daily Low</span></div>
+        <div class="level-row"><span class="level-type sup">SUP 2</span><span class="level-price" style="color:var(--green)" id="lvlS2">—</span><span class="level-note">Structure</span></div>
+        <div class="level-row"><span class="level-type sup">SUP 3</span><span class="level-price" style="color:var(--green)" id="lvlS3">—</span><span class="level-note">Psych. Level</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM ROW -->
+  <div class="grid-3">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> FUNDAMENTAL MATRIX</div></div>
+      <div style="padding:12px">
+        <div class="indicator-row"><span class="ind-name">Fed Policy</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:30%;background:var(--green)"></div></div><span class="ind-val up">Dovish</span><span class="ind-signal up">BULLISH</span></div>
+        <div class="indicator-row"><span class="ind-name">DXY Trend</span><div class="ind-bar-wrap"><div class="ind-bar" id="dxyTrendBar" style="width:50%;background:var(--gold)"></div></div><span class="ind-val" id="dxyTrendVal">—</span><span class="ind-signal" id="dxyTrendSig">—</span></div>
+        <div class="indicator-row"><span class="ind-name">Real Yields</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:38%;background:var(--green)"></div></div><span class="ind-val">1.8%↓</span><span class="ind-signal up">BULLISH</span></div>
+        <div class="indicator-row"><span class="ind-name">Inflation</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:55%;background:var(--gold)"></div></div><span class="ind-val" style="color:var(--gold)">2.4%</span><span class="ind-signal" style="color:var(--gold)">NEUTRAL</span></div>
+        <div class="indicator-row"><span class="ind-name">Risk Appe.</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:68%;background:var(--green)"></div></div><span class="ind-val up">Low</span><span class="ind-signal up">BULLISH</span></div>
+        <div class="indicator-row"><span class="ind-name">ETF Flows</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:74%;background:var(--green)"></div></div><span class="ind-val up">+8.2T</span><span class="ind-signal up">BULLISH</span></div>
+        <div style="margin-top:12px;padding:10px;background:rgba(34,217,138,0.06);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center">
+          <div style="font-size:9px;color:var(--t2);margin-bottom:4px">OVERALL BIAS</div>
+          <div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:var(--green);letter-spacing:3px">BULLISH</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> ECON CALENDAR</div><span style="font-size:9px;color:var(--t3)">investing.com · LIVE</span></div>
+      <div style="height:280px;overflow:hidden;position:relative">
+        <iframe src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=timezone&countries=5,22,25,32,4&importance=2,3&calType=day&timeZone=18&lang=1"
+          style="width:100%;height:280px;border:none;display:block;filter:invert(0.92) hue-rotate(180deg) saturate(0.85) brightness(0.88)" loading="lazy"></iframe>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> LATEST NEWS</div></div>
+      <div id="newsPreview"><div style="padding:20px;text-align:center;color:var(--t3)">Loading…</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ CHARTS ═══ -->
+<div id="page-charts" class="page">
+  <div class="grid-2" style="margin-bottom:8px">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">XAUUSD</span> · 1H CHART</div></div>
+      <div class="chart-wrap" style="height:270px"><canvas id="xauH1Chart"></canvas></div>
+      <div id="xauChartStats" style="display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);padding:8px 12px;gap:8px">
+        <div><div class="stat-label">XAU PRICE</div><div class="stat-val" style="color:var(--gold)">—</div></div>
+        <div><div class="stat-label">CHANGE</div><div class="stat-val">—</div></div>
+        <div><div class="stat-label">RSI (14)</div><div class="stat-val">—</div></div>
+        <div><div class="stat-label">SIGNAL</div><div class="stat-val">—</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">DXY</span> · 1H CHART</div></div>
+      <div class="chart-wrap" style="height:270px"><canvas id="dxyH1Chart"></canvas></div>
+      <div id="dxyChartStats" style="display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);padding:8px 12px;gap:8px">
+        <div><div class="stat-label">DXY PRICE</div><div class="stat-val" style="color:var(--blue)">—</div></div>
+        <div><div class="stat-label">CHANGE</div><div class="stat-val">—</div></div>
+        <div><div class="stat-label">RSI (14)</div><div class="stat-val">—</div></div>
+        <div><div class="stat-label">GOLD IMPACT</div><div class="stat-val">—</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BTC Row -->
+  <div class="grid-2" style="margin-bottom:8px">
+    <div class="panel">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="panel-title"><span class="accent">BTC/USD</span> · 1H CHART (CoinGecko)</div>
+        <span class="api-status api-load" id="btcChartStatus">Loading…</span>
+      </div>
+      <div class="chart-wrap" style="height:260px"><canvas id="btcH1Chart"></canvas></div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);padding:8px 12px;gap:8px">
+        <div><div class="stat-label">BTC PRICE</div><div class="stat-val" id="btcPrice" style="color:var(--gold)">—</div></div>
+        <div><div class="stat-label">24H CHG</div><div class="stat-val" id="btcChg">—</div></div>
+        <div><div class="stat-label">RSI (14)</div><div class="stat-val" id="btcRSI">—</div></div>
+        <div><div class="stat-label">SIGNAL</div><div class="stat-val" id="btcSignalBadge">—</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">BTC</span> SIGNAL & LEVELS</div></div>
+      <div style="padding:14px">
+        <div class="signal-box buy" id="btcSignalBox" style="margin-bottom:10px">
+          <div style="font-size:9px;color:var(--t3);margin-bottom:4px" id="btcSetup">—</div>
+          <div class="signal-label buy" id="btcDir">—</div>
+          <div style="height:1px;background:rgba(34,217,138,0.2);margin:8px 0"></div>
+          <div class="signal-row"><span class="signal-key">ENTRY ZONE</span><span class="signal-val up" id="btcEntry">—</span></div>
+          <div class="signal-row"><span class="signal-key">STOP LOSS</span><span class="signal-val down" id="btcSL">—</span></div>
+          <div class="signal-row"><span class="signal-key">TARGET 1</span><span class="signal-val up" id="btcTP1">—</span></div>
+          <div class="signal-row"><span class="signal-key">TARGET 2</span><span class="signal-val up" id="btcTP2">—</span></div>
+          <div class="signal-row"><span class="signal-key">R:R RATIO</span><span class="signal-val" style="color:var(--gold)" id="btcRR">—</span></div>
+          <div class="signal-row"><span class="signal-key">CONFIDENCE</span><span class="signal-val up" id="btcConf">—</span></div>
+        </div>
+        <div style="padding:10px;background:var(--bg-card);border-radius:3px;border-left:3px solid var(--purple)">
+          <div style="font-size:9px;color:var(--purple);margin-bottom:4px;letter-spacing:1px">BTC RATIONALE</div>
+          <div style="font-size:10px;color:var(--t2);line-height:1.6" id="btcRationale">Loading BTC data…</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Existing XAU indicators (preserved) -->
+</div>
+
+<!-- ═══ SIGNALS ═══ -->
+<div id="page-signals" class="page">
+  <div class="grid-3">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> DAY TRADE SIGNAL</div><span class="api-status api-load" id="signalStatus">Computing…</span></div>
+      <div style="padding:14px">
+        <div class="signal-box buy" id="daySignalBox">
+          <div style="font-size:9px;color:var(--t3);margin-bottom:4px" id="sigSetupType">—</div>
+          <div class="signal-label buy" id="sigDirFull">—</div>
+          <div style="height:1px;background:rgba(34,217,138,0.2);margin:8px 0"></div>
+          <div class="signal-row"><span class="signal-key">ENTRY ZONE</span><span class="signal-val up" id="sigEntryFull">—</span></div>
+          <div class="signal-row"><span class="signal-key">STOP LOSS</span><span class="signal-val down" id="sigSLFull">—</span></div>
+          <div class="signal-row"><span class="signal-key">TARGET 1</span><span class="signal-val up" id="sigTP1Full">—</span></div>
+          <div class="signal-row"><span class="signal-key">TARGET 2</span><span class="signal-val up" id="sigTP2Full">—</span></div>
+          <div class="signal-row"><span class="signal-key">R:R RATIO</span><span class="signal-val" style="color:var(--gold)" id="sigRRFull">—</span></div>
+          <div class="signal-row"><span class="signal-key">CONFIDENCE</span><span class="signal-val up" id="sigConf">—</span></div>
+        </div>
+        <div style="margin-top:10px;padding:10px;background:var(--bg-card);border-radius:3px;border-left:3px solid var(--gold)">
+          <div style="font-size:9px;color:var(--gold);margin-bottom:4px;letter-spacing:1px">RATIONALE</div>
+          <div style="font-size:10px;color:var(--t2);line-height:1.6" id="sigRationaleFull">Analyzing…</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> SWING SIGNAL</div><span style="font-size:9px;color:var(--t3)">WEEKLY BIAS</span></div>
+      <div style="padding:14px">
+        <div class="signal-box buy" id="swingSignalBox">
+          <div style="font-size:9px;color:var(--t3);margin-bottom:4px">TREND CONTINUATION</div>
+          <div class="signal-label buy" id="swingDir">—</div>
+          <div style="height:1px;background:rgba(34,217,138,0.2);margin:8px 0"></div>
+          <div class="signal-row"><span class="signal-key">ENTRY</span><span class="signal-val up" id="swingEntry">—</span></div>
+          <div class="signal-row"><span class="signal-key">STOP LOSS</span><span class="signal-val down" id="swingSL">—</span></div>
+          <div class="signal-row"><span class="signal-key">TARGET 1</span><span class="signal-val up" id="swingTP1">—</span></div>
+          <div class="signal-row"><span class="signal-key">TARGET 2</span><span class="signal-val up" id="swingTP2">—</span></div>
+          <div class="signal-row"><span class="signal-key">TIMEFRAME</span><span class="signal-val">3–7 DAYS</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> COT POSITIONING</div></div>
+      <div style="padding:12px">
+        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--t2)">MM LONG</span><span style="color:var(--green);font-size:11px">246,412</span></div><div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px"><div style="width:78%;height:100%;background:var(--green);border-radius:3px"></div></div></div>
+        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--t2)">MM SHORT</span><span style="color:var(--red);font-size:11px">48,230</span></div><div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px"><div style="width:22%;height:100%;background:var(--red);border-radius:3px"></div></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
+          <div><div class="stat-label">Net Position</div><div class="stat-val up">+198,182</div></div>
+          <div><div class="stat-label">WoW Change</div><div class="stat-val up">+12,400</div></div>
+          <div><div class="stat-label">L/S Ratio</div><div class="stat-val">5.1 : 1</div></div>
+          <div><div class="stat-label">COT Bias</div><div class="stat-val up">BULLISH</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- WINRATE + TANDAI HASIL -->
+  <div class="grid-2" style="margin-top:8px">
+    <div class="panel">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="panel-title"><span class="accent">◈</span> SIGNAL PERFORMANCE</div>
+        <button onclick="window.clearSignalHistory()" style="font-size:9px;padding:2px 8px;background:transparent;border:1px solid rgba(255,77,109,0.3);color:var(--red);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">✕ CLEAR</button>
+      </div>
+      <div style="padding:12px">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid var(--border)">
+            <div class="stat-label">TOTAL</div>
+            <div class="stat-val" id="wrTotal" style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800">0</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(34,217,138,0.2)">
+            <div class="stat-label">WIN</div>
+            <div class="stat-val up" id="wrWin" style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800">0</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(255,77,109,0.2)">
+            <div class="stat-label">LOSS</div>
+            <div class="stat-val down" id="wrLoss" style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800">0</div>
+          </div>
+          <div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(240,192,64,0.25)">
+            <div class="stat-label">WINRATE</div>
+            <div id="wrPct" style="font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:var(--gold)">—</div>
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--t3);margin-bottom:4px">
+            <span>Win Rate Progress</span><span id="wrPctBar">—</span>
+          </div>
+          <div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
+            <div id="wrBar" style="height:100%;width:0%;background:var(--green);border-radius:3px;transition:width 0.6s"></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <div style="padding:8px;background:var(--bg-card);border-radius:3px;border:1px solid var(--border);text-align:center">
+            <div class="stat-label">AVG RR</div>
+            <div class="stat-val" id="wrAvgRR" style="color:var(--gold)">—</div>
+          </div>
+          <div style="padding:8px;background:var(--bg-card);border-radius:3px;border:1px solid var(--border);text-align:center">
+            <div class="stat-label">LONG WIN%</div>
+            <div class="stat-val up" id="wrLongWR">—</div>
+          </div>
+          <div style="padding:8px;background:var(--bg-card);border-radius:3px;border:1px solid var(--border);text-align:center">
+            <div class="stat-label">SHORT WIN%</div>
+            <div class="stat-val down" id="wrShortWR">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> TANDAI HASIL SIGNAL</div></div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:9px;color:var(--t3)">Pilih signal lalu tandai hasilnya:</div>
+        <select id="sigPickHistory" style="background:var(--bg-card);border:1px solid var(--border);color:var(--t1);padding:8px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:10px;width:100%">
+          <option value="">— Pilih signal dari riwayat —</option>
+        </select>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+          <button onclick="window.markSignal('tp1')" style="padding:9px;background:rgba(34,217,138,0.08);border:1px solid rgba(34,217,138,0.35);color:var(--green);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px">✓ TP1</button>
+          <button onclick="window.markSignal('tp2')" style="padding:9px;background:rgba(34,217,138,0.14);border:1px solid rgba(34,217,138,0.5);color:var(--green);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px">✓✓ TP2</button>
+          <button onclick="window.markSignal('sl')" style="padding:9px;background:rgba(255,77,109,0.08);border:1px solid rgba(255,77,109,0.35);color:var(--red);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px">✗ SL</button>
+        </div>
+        <div id="markFeedback" style="font-size:10px;color:var(--t3);min-height:18px;text-align:center;padding:4px"></div>
+        <div style="border-top:1px solid var(--border);padding-top:10px">
+          <div style="font-size:9px;color:var(--t3);margin-bottom:8px;letter-spacing:1px">TAMBAH SIGNAL MANUAL</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+            <select id="manualDir" style="background:var(--bg-card);border:1px solid var(--border);color:var(--t1);padding:7px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:10px">
+              <option value="LONG">LONG</option>
+              <option value="SHORT">SHORT</option>
+            </select>
+            <select id="manualResult" style="background:var(--bg-card);border:1px solid var(--border);color:var(--t1);padding:7px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:10px">
+              <option value="tp1">TP1 Hit</option>
+              <option value="tp2">TP2 Hit</option>
+              <option value="sl">SL Hit</option>
+            </select>
+          </div>
+          <input id="manualEntry" placeholder="Entry price (contoh: 3320.00)" style="background:var(--bg-card);border:1px solid var(--border);color:var(--t1);padding:7px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-size:10px;width:100%;outline:none">
+          <button onclick="window.addManualSignal()" style="margin-top:6px;width:100%;padding:9px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.3);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px">+ TAMBAH MANUAL</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TABEL RIWAYAT -->
+  <div class="panel" style="margin-top:8px">
+    <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+      <div class="panel-title"><span class="accent">◈</span> RIWAYAT SIGNAL</div>
+      <span id="histCount" style="font-size:9px;color:var(--t3)">0 signals</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table class="data-table" style="min-width:680px">
+        <tr><th>TANGGAL</th><th>DIR</th><th>ENTRY</th><th>TP1</th><th>TP2</th><th>SL</th><th>RR</th><th>CONF</th><th>HASIL</th><th>AKSI</th></tr>
+        <tbody id="signalHistoryBody">
+          <tr><td colspan="10" style="text-align:center;color:var(--t3);padding:20px">Belum ada riwayat. Signal live akan otomatis tersimpan.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══ COT ═══ -->
+<div id="page-cot" class="page">
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">CFTC</span> COT — GOLD</div><span style="font-size:9px;color:var(--t3)">WEEKLY</span></div>
+      <div style="padding:12px">
+        <table class="data-table"><tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
+          <tr><td style="color:var(--blue)">Managed Money</td><td class="up">246,412</td><td class="down">48,230</td><td class="up">+198,182</td><td class="up">+12,400</td></tr>
+          <tr><td style="color:var(--purple)">Producers</td><td class="up">28,400</td><td class="down">312,840</td><td class="down">−284,440</td><td class="down">−4,200</td></tr>
+          <tr><td style="color:var(--cyan)">Swap Dealers</td><td class="up">142,890</td><td class="down">68,210</td><td class="up">+74,680</td><td class="up">+3,100</td></tr>
+          <tr><td style="color:var(--gold)">Non-Report.</td><td class="up">62,100</td><td class="down">50,300</td><td class="up">+11,800</td><td class="down">−800</td></tr>
+        </table>
+        <div style="margin-top:12px;height:160px"><canvas id="cotBarChart"></canvas></div>
+        <div style="margin-top:10px;padding:10px;background:rgba(34,217,138,0.05);border:1px solid rgba(34,217,138,0.2);border-radius:3px;font-size:10px;color:var(--t2);line-height:1.5">COT bias: Managed Money net long <span class="up">+198,182</span>. WoW smart money increased longs by <span class="up">+12,400</span>. <span class="up">BULLISH for Gold.</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">CFTC</span> COT — DXY FUTURES</div></div>
+      <div style="padding:12px">
+        <table class="data-table"><tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
+          <tr><td style="color:var(--blue)">Managed Money</td><td class="up">42,100</td><td class="down">98,320</td><td class="down">−56,220</td><td class="down">−3,400</td></tr>
+          <tr><td style="color:var(--purple)">Leveraged Funds</td><td class="up">28,400</td><td class="down">62,840</td><td class="down">−34,440</td><td class="down">−1,800</td></tr>
+          <tr><td style="color:var(--cyan)">Asset Managers</td><td class="up">18,900</td><td class="down">8,210</td><td class="up">+10,690</td><td class="down">−400</td></tr>
+        </table>
+        <div style="margin-top:12px;height:160px"><canvas id="cotNetChart"></canvas></div>
+        <div style="margin-top:10px;padding:10px;background:rgba(255,77,109,0.04);border:1px solid rgba(255,77,109,0.2);border-radius:3px;font-size:10px;color:var(--t2);line-height:1.5">DXY futures net short. <span class="down">BEARISH USD = BULLISH Gold.</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ CALENDAR ═══ -->
+<div id="page-calendar" class="page">
+  <div class="grid-2" style="align-items:start">
+
+    <!-- KIRI: Calendar iframe -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title"><span class="accent">◈</span> ECONOMIC CALENDAR — LIVE</div>
+        <span style="font-size:9px;color:var(--t3)">investing.com · Real-time</span>
+      </div>
+      <div style="position:relative;height:460px;background:var(--bg-card)">
+        <div id="calLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--t3);z-index:1;flex-direction:column;gap:10px">
+          <div style="font-size:20px">⟳</div><div>Loading calendar…</div>
+        </div>
+        <iframe id="investingCalFrame"
+          src="https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=datepicker,timezone&countries=5,22,25,32,4,37&calType=week&timeZone=18&lang=1"
+          style="width:100%;height:460px;border:none;display:block;position:relative;z-index:2;filter:invert(0.92) hue-rotate(180deg) saturate(0.9) brightness(0.85)"
+          onload="document.getElementById('calLoading').style.display='none'" loading="lazy"></iframe>
+      </div>
+      <div style="padding:10px;border-top:1px solid var(--border)">
+        <div style="font-size:9px;color:var(--t3);letter-spacing:2px;margin-bottom:8px">GOLD IMPACT GUIDE</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <div style="padding:7px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.2);border-radius:3px">
+            <div style="font-size:9px;color:var(--red);margin-bottom:3px">🔴 GOLD NAIK — Data lemah</div>
+            <div style="font-size:9px;color:var(--t3);line-height:1.5">NFP miss · CPI rendah · Fed dovish · GDP lemah</div>
+          </div>
+          <div style="padding:7px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px">
+            <div style="font-size:9px;color:var(--green);margin-bottom:3px">🟢 GOLD TURUN — Data kuat</div>
+            <div style="font-size:9px;color:var(--t3);line-height:1.5">NFP beat · CPI tinggi · Fed hawkish · USD kuat</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KANAN: Fed Watch + High Impact -->
+    <div style="display:flex;flex-direction:column;gap:8px">
+
+      <!-- FED WATCH -->
+      <div class="panel">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="panel-title"><span class="accent">◈</span> FED RATE CUT PROBABILITY</div>
+          <button onclick="window.refreshFedWatch()" style="font-size:9px;padding:2px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">↻</button>
+        </div>
+        <div style="padding:12px">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:12px">
+            <div style="padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(240,192,64,0.2);text-align:center">
+              <div class="stat-label">CURRENT RATE</div>
+              <div id="fedCurrentRate" style="font-family:'Syne',sans-serif;font-size:16px;font-weight:800;color:var(--gold);margin-top:4px">4.25–4.50%</div>
+            </div>
+            <div style="padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(34,217,138,0.2);text-align:center">
+              <div class="stat-label">CUT PROB (JUL)</div>
+              <div id="fedCutProb" style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--green);margin-top:4px">—</div>
+            </div>
+            <div style="padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(77,166,255,0.2);text-align:center">
+              <div class="stat-label">NEXT FOMC</div>
+              <div id="fedNextMeet" style="font-size:11px;font-weight:600;color:var(--blue);margin-top:4px">Jul 30</div>
+            </div>
+          </div>
+          <div id="fedWatchBars" style="display:flex;flex-direction:column;gap:6px">
+            <div style="text-align:center;color:var(--t3);font-size:10px;padding:8px">Loading Fed Watch data…</div>
+          </div>
+          <div style="margin-top:8px;font-size:9px;color:var(--t3)">Source: CME FedWatch · Estimates based on fed funds futures</div>
+        </div>
+      </div>
+
+      <!-- HIGH IMPACT RELEASES -->
+      <div class="panel">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="panel-title"><span class="accent">◈</span> RECENT HIGH-IMPACT RELEASES</div>
+          <span id="hiStatus" style="font-size:9px;color:var(--t3)">—</span>
+        </div>
+        <div id="highImpactList" style="max-height:300px;overflow-y:auto">
+          <div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Loading…</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ═══ SENTIMENT ═══ -->
+<div id="page-sentiment" class="page">
+  <div class="grid-3">
+    <div class="panel col-span-2">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> FUNDAMENTAL SENTIMENT MATRIX</div></div>
+      <div style="padding:12px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+          <div>
+            <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">MONETARY</div>
+            <div class="indicator-row"><span class="ind-name">Fed Policy</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:30%;background:var(--green)"></div></div><span class="ind-val up">Dovish</span><span class="ind-signal up">+GOLD</span></div>
+            <div class="indicator-row"><span class="ind-name">CPI Trend</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:55%;background:var(--gold)"></div></div><span class="ind-val" style="color:var(--gold)">2.4%↓</span><span class="ind-signal" style="color:var(--gold)">NEUTRAL</span></div>
+            <div class="indicator-row"><span class="ind-name">Real Yields</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:38%;background:var(--green)"></div></div><span class="ind-val">1.8%↓</span><span class="ind-signal up">+GOLD</span></div>
+            <div class="indicator-row"><span class="ind-name">USD Strength</span><div class="ind-bar-wrap"><div class="ind-bar" id="sentDXYBar" style="width:50%;background:var(--gold)"></div></div><span class="ind-val" id="sentDXYVal">—</span><span class="ind-signal" id="sentDXYSig">—</span></div>
+          </div>
+          <div>
+            <div style="font-size:9px;color:var(--t3);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">DEMAND</div>
+            <div class="indicator-row"><span class="ind-name">ETF Flows</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:75%;background:var(--green)"></div></div><span class="ind-val up">+8.2T</span><span class="ind-signal up">STRONG</span></div>
+            <div class="indicator-row"><span class="ind-name">CB Buying</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:80%;background:var(--green)"></div></div><span class="ind-val up">High</span><span class="ind-signal up">STRONG</span></div>
+            <div class="indicator-row"><span class="ind-name">Retail Long%</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:68%;background:var(--green)"></div></div><span class="ind-val up">72%</span><span class="ind-signal up">BULLISH</span></div>
+            <div class="indicator-row"><span class="ind-name">VIX Level</span><div class="ind-bar-wrap"><div class="ind-bar" style="width:58%;background:var(--green)"></div></div><span class="ind-val">22.4↑</span><span class="ind-signal up">+GOLD</span></div>
+          </div>
+        </div>
+        <div style="padding:14px;background:rgba(34,217,138,0.06);border:1px solid rgba(34,217,138,0.25);border-radius:4px;display:flex;align-items:center;gap:20px">
+          <div style="text-align:center;flex-shrink:0">
+            <div style="font-size:9px;color:var(--t2);margin-bottom:4px">COMPOSITE</div>
+            <div style="font-family:'Syne',sans-serif;font-size:40px;font-weight:800;color:var(--green);line-height:1">78</div>
+            <div style="font-size:9px;color:var(--t3)">/100</div>
+          </div>
+          <div><div style="font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:var(--green);letter-spacing:2px;margin-bottom:6px">FUNDAMENTAL BULLISH</div><div style="font-size:10px;color:var(--t2);line-height:1.6">9/12 indicators favor gold upside. Fed dovishness, central bank demand, and geopolitical risk create a structurally supportive environment.</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> MARKET SENTIMENT</div></div>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:12px">
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:12px">
+          <div style="font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px">Retail Long/Short</div>
+          <div style="display:flex;height:12px;border-radius:3px;overflow:hidden;margin:8px 0"><div style="width:72%;background:var(--green)"></div><div style="width:28%;background:var(--red)"></div></div>
+          <div style="display:flex;justify-content:space-between"><span class="up" style="font-size:11px;font-weight:700">72% LONG</span><span class="down" style="font-size:11px">28% SHORT</span></div>
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:12px">
+          <div style="font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Fear & Greed Index</div>
+          <div style="display:flex;align-items:center;gap:12px;padding:6px 0"><div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--gold)">38</div><div><div style="font-size:11px;color:var(--gold);font-weight:600">FEAR</div><div style="font-size:9px;color:var(--t3)">Supports Gold</div></div></div>
+          <div style="height:6px;background:linear-gradient(90deg,var(--green),var(--gold),var(--red));border-radius:3px;position:relative"><div style="position:absolute;left:38%;top:-3px;width:2px;height:12px;background:white;border-radius:1px"></div></div>
+        </div>
+        <div style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;padding:12px">
+          <div style="font-size:9px;color:var(--t2);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">GVZ Gold Volatility</div>
+          <div style="display:flex;align-items:center;gap:12px"><div style="font-family:'Syne',sans-serif;font-size:32px;font-weight:800;color:var(--purple)">18.4</div><div><div style="font-size:11px;color:var(--purple);font-weight:600">ELEVATED</div><div style="font-size:9px;color:var(--t3)">Watch Moves</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ GEOPOLITICAL ═══ -->
+<div id="page-geopolitical" class="page">
+  <div class="grid-2">
+    <div class="panel" style="display:flex;flex-direction:column;gap:0">
+      <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+        <div class="panel-title"><span class="accent">◈</span> LIVE GEOPOLITICAL NEWS</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span id="geoNewsStatus" style="font-size:9px;color:var(--t3)">Loading...</span>
+          <button onclick="window.refreshGeoNews&&window.refreshGeoNews()" style="font-size:9px;padding:3px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">↻ REFRESH</button>
+        </div>
+      </div>
+      <div id="geoNewsFeed" style="flex:1;overflow-y:auto;max-height:420px">
+        <div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Fetching news...</div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <div class="panel">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
+          <div class="panel-title"><span class="accent">◈</span> AI GEOPOLITICAL ANALYSIS</div>
+          <button onclick="window.runGeoAI&&window.runGeoAI()" id="geoAiBtn" style="font-size:9px;padding:3px 8px;background:rgba(240,192,64,0.08);border:1px solid rgba(240,192,64,0.25);color:var(--gold);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace">⚡ ANALYZE</button>
+        </div>
+        <div id="geoAiOut" style="padding:10px;font-size:10px;line-height:1.7;color:var(--t2);min-height:80px">
+          <span style="color:var(--t3)">Klik ANALYZE untuk AI summary. Butuh Groq API key (set di tab AI Analysis).</span>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> RISK MATRIX</div></div>
+        <div style="padding:10px">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(255,77,109,0.25);border-radius:3px;text-align:center">
+              <div style="font-size:9px;color:var(--t2)">GEO RISK INDEX</div>
+              <div id="geoRiskScore" style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--red)">74</div>
+              <div id="geoRiskLabel" style="font-size:9px;color:var(--red)">HIGH RISK</div>
+            </div>
+            <div style="padding:10px;background:var(--bg-card);border:1px solid rgba(34,217,138,0.2);border-radius:3px;text-align:center">
+              <div style="font-size:9px;color:var(--t2)">SAFE HAVEN</div>
+              <div style="font-family:'Syne',sans-serif;font-size:28px;font-weight:800;color:var(--green)">+</div>
+              <div style="font-size:9px;color:var(--green)">ACTIVE</div>
+            </div>
+          </div>
+          <table class="data-table">
+            <tr><th>Region</th><th>Risk</th><th>Trend</th><th>Gold</th></tr>
+            <tr><td>E. Europe</td><td style="color:var(--red)">Critical</td><td>→</td><td class="up">+++ BUY</td></tr>
+            <tr><td>US-China</td><td style="color:var(--red)">Critical</td><td>↑</td><td class="up">++ BUY</td></tr>
+            <tr><td>Middle East</td><td style="color:var(--gold)">Elevated</td><td>→</td><td class="up">+ BUY</td></tr>
+            <tr><td>S. Asia</td><td style="color:var(--gold)">Elevated</td><td>↓</td><td class="up">+ BUY</td></tr>
+            <tr><td>E. Asia</td><td style="color:var(--blue)">Moderate</td><td>→</td><td style="color:var(--gold)">◆ WATCH</td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CENTRAL BANK GOLD BUYING (tonnes)</div></div>
+        <div style="padding:10px">
+          <div style="height:120px"><canvas id="cbChart"></canvas></div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px">
+            <div style="text-align:center"><div class="stat-label">China PBoC</div><div class="stat-val up">+8T</div></div>
+            <div style="text-align:center"><div class="stat-label">India RBI</div><div class="stat-val up">+6.5T</div></div>
+            <div style="text-align:center"><div class="stat-label">Poland NBP</div><div class="stat-val up">+19T</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ LIVE TV ═══ -->
+<div id="page-livetv" class="page">
+  <div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">
+    <div style="padding:6px 14px;background:rgba(255,77,109,0.1);border:1px solid rgba(255,77,109,0.3);border-radius:3px;font-size:10px;color:var(--red);display:flex;align-items:center;gap:6px"><span style="width:6px;height:6px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span>LIVE STREAMS</div>
+    <div style="padding:6px 14px;background:var(--bg-panel);border:1px solid var(--border);border-radius:3px;font-size:10px;color:var(--t2)">🔊 Click to play audio · Fullscreen available</div>
+  </div>
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span style="width:7px;height:7px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span><span class="accent">GOLD</span> BOOKMAP · CME FUTURES GC</div><span style="font-size:9px;padding:2px 7px;background:rgba(255,77,109,0.15);border:1px solid rgba(255,77,109,0.3);color:var(--red);border-radius:2px">24/7 LIVE</span></div>
+      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;background:#000">
+        <iframe src="https://www.youtube.com/embed/XIyocP-yr9E?autoplay=0&mute=1&rel=0&modestbranding=1" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen loading="lazy"></iframe>
+      </div>
+      <div style="padding:10px 12px;background:var(--bg-card);border-top:1px solid var(--border);font-size:9px;color:var(--t2);line-height:1.5">📊 Bookmap menampilkan <span style="color:var(--gold)">order book heatmap real-time</span> dari CME GC Futures. Cluster order besar = Support/Resistance kuat.</div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span style="width:7px;height:7px;background:var(--red);border-radius:50%;display:inline-block;animation:blink 1s infinite"></span><span class="accent">BLOOMBERG</span> TV · LIVE NEWS</div><span style="font-size:9px;padding:2px 7px;background:rgba(255,77,109,0.15);border:1px solid rgba(255,77,109,0.3);color:var(--red);border-radius:2px">24/7 LIVE</span></div>
+      <div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;background:#000">
+        <iframe src="https://www.youtube.com/embed/live_stream?channel=UCIALMKvObZNtJ6AmdCLP7Lg&autoplay=0&mute=1&rel=0&modestbranding=1" style="position:absolute;top:0;left:0;width:100%;height:100%;border:none" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen loading="lazy"></iframe>
+      </div>
+      <div style="padding:10px 12px;background:var(--bg-card);border-top:1px solid var(--border);font-size:9px;color:var(--t2);line-height:1.5">📡 Bloomberg TV live — breaking news, Fed commentary, market analysis & wawancara eksklusif fund managers.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ AI ANALYSIS ═══ -->
+<div id="page-ai" class="page">
+  <div class="panel" style="margin-bottom:8px">
+    <div class="panel-header"><div class="panel-title"><span class="accent">🤖</span> GROQ AI — XAUUSD MARKET ANALYSIS</div><span class="api-status api-load" id="aiStatus">Waiting for key…</span></div>
+    <div style="padding:12px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <input id="groqKeyInput" type="password" placeholder="Paste Groq API Key (gsk_...)"
+          style="flex:1;min-width:200px;background:var(--bg-card);border:1px solid var(--border);border-radius:3px;padding:9px 12px;color:var(--t1);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none">
+        <button onclick="window.setGroqKey()" style="padding:9px 18px;background:var(--gold);border:none;border-radius:3px;cursor:pointer;font-family:'Syne',sans-serif;font-weight:700;font-size:11px;letter-spacing:2px;color:#050810">ACTIVATE</button>
+        <button onclick="window.renderAIPanel()" style="padding:9px 14px;background:transparent;border:1px solid var(--border);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">↺ REFRESH</button>
+        <span id="groqKeyStatus" style="font-size:9px;color:var(--green)"></span>
+      </div>
+      <div id="aiAnalysisResult" style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;min-height:220px;display:flex;align-items:center;justify-content:center">
+        <div style="text-align:center;color:var(--t3);padding:30px">
+          <div style="font-size:24px;margin-bottom:10px">🤖</div>
+          <div>Enter Groq API Key above to enable AI market analysis</div>
+        </div>
+      </div>
+      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Groq · llama-3.3-70b-versatile · Key stored locally in browser</div>
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> LIVE DATA FOR AI</div></div>
+      <div style="padding:12px;display:flex;flex-direction:column;gap:6px">
+        <div class="indicator-row"><span class="ind-name">XAU Price</span><span class="ind-val" id="aiXauPrice">—</span></div>
+        <div class="indicator-row"><span class="ind-name">Daily Change</span><span class="ind-val" id="aiXauChg">—</span></div>
+        <div class="indicator-row"><span class="ind-name">DXY</span><span class="ind-val" id="aiEurUsd">—</span></div>
+        <div class="indicator-row"><span class="ind-name">RSI (14)</span><span class="ind-val" id="aiRsi">—</span></div>
+        <div class="indicator-row"><span class="ind-name">EMA 20</span><span class="ind-val" id="aiEma20">—</span></div>
+        <div class="indicator-row"><span class="ind-name">EMA 50</span><span class="ind-val" id="aiEma50">—</span></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> CARA DAPAT GROQ API KEY (GRATIS)</div></div>
+      <div style="padding:14px;font-size:10px;color:var(--t2);line-height:1.9">
+        1. Buka <span style="color:var(--blue)">console.groq.com</span><br>
+        2. Daftar / login akun<br>
+        3. Klik <span style="color:var(--gold)">"API Keys"</span> → "Create API key"<br>
+        4. Copy key yang dimulai dengan <span style="color:var(--green)">gsk_...</span><br>
+        5. Paste di atas → klik ACTIVATE<br><br>
+        <span style="color:var(--green)">✓ Gratis · Super cepat (LPU) · 14.400 req/hari</span><br>
+        <span style="color:var(--t3)">Key disimpan di browser lokal, aman</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /main-content -->
+
+<!-- SCRIPTS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="app.js"></script>
+<script>
+// Sync ticker clones setiap update harga
+(function(){
+  var pairs = ['xau','xag','eur','gbp','jpy','us10','btc'];
+  function sync(){
+    pairs.forEach(function(p){
+      var price = document.getElementById('t-'+p);
+      var chg   = document.getElementById('t-'+p+'-chg');
+      var priceC = document.getElementById('t-'+p+'-c');
+      var chgC   = document.getElementById('t-'+p+'-chg-c');
+      if(price && priceC){ priceC.textContent=price.textContent; priceC.className=price.className; }
+      if(chg && chgC){ chgC.textContent=chg.textContent; chgC.className=chg.className; }
     });
-
-    if (results['XAU/USD']) { state.xau=results['XAU/USD']; updateXAU(); }
-    if (results['EUR/USD']) { state.dxy=results['EUR/USD']; updateDXY(); }
-    fetchBTCPrice();
-
-    if (anySuccess) {
-      setStatus('apiStatusBadge','ok','● LIVE');
-      saveCache({tickers:results, xau:state.xau, dxy:state.dxy});
-      computeSignal();
-    } else throw new Error('All quotes failed');
-
-  } catch(e) {
-    console.error('fetchQuotes:', e);
-    var cached=loadCache();
-    if (cached&&cached.data) {
-      setStatus('apiStatusBadge','load','◷ CACHED');
-      if (cached.data.xau) { state.xau=cached.data.xau; updateXAU(); }
-      if (cached.data.dxy) { state.dxy=cached.data.dxy; updateDXY(); }
-      computeSignal();
-    } else {
-      setStatus('apiStatusBadge','err', isMarketOpen()?'✕ ERR':'🔴 CLOSED');
-    }
   }
-}
-
-function updateXAU() {
-  var x=state.xau; if (!x||!x.price) return;
-  var dir=x.change>=0, now=new Date();
-  setEl('xauPrice', fmt(x.price));
-  setEl('xauOpen', fmt(x.open));
-  setEl('xauHigh', fmt(x.high));
-  setEl('xauLow', fmt(x.low));
-  setEl('xauPrev', fmt(x.prev));
-  setEl('xauPct', fmtPct(x.pct));
-  setEl('xauLastUpdate','UPDATED '+String(now.getUTCHours()).padStart(2,'0')+':'+String(now.getUTCMinutes()).padStart(2,'0')+' UTC');
-  var cb=document.getElementById('xauChgBig');
-  if (cb) { cb.textContent=(dir?'▲ +':'▼ ')+Math.abs(x.change).toFixed(2)+' ('+fmtPct(x.pct)+')'; cb.className='price-change-big '+(dir?'up':'down'); }
-  // Key levels
-  var p=x.price;
-  setEl('lvlNow',fmt(p)); setEl('lvlR3',fmt(Math.ceil((p+120)/50)*50));
-  setEl('lvlR2',fmt(Math.ceil((p+60)/25)*25)); setEl('lvlR1',fmt(x.high));
-  setEl('lvlPivot',fmt((x.high+x.low+x.prev)/3));
-  setEl('lvlS1',fmt(x.low)); setEl('lvlS2',fmt(Math.floor((p-55)/25)*25));
-  setEl('lvlS3',fmt(Math.floor(p/100)*100));
-  // DXY trend indicator update
-  updateDXYIndicator();
-}
-
-function updateDXY() {
-  var d=state.dxy; if (!d||!d.price) return;
-  var dir=d.change>=0;
-  setEl('dxyPrice',fmt(d.price,4));
-  setEl('dxyHigh',fmt(d.high,4)); setEl('dxyLow',fmt(d.low,4));
-  setEl('dxyOpen',fmt(d.open,4)); setEl('dxyPrev',fmt(d.prev,4));
-  var ce=document.getElementById('dxyChg');
-  if (ce) { ce.textContent=(dir?'▲ +':'▼ ')+Math.abs(d.change).toFixed(4)+' ('+fmtPct(d.pct)+')'; ce.className=dir?'up':'down'; }
-  updateDXYIndicator();
-}
-
-function updateDXYIndicator() {
-  var d=state.dxy; if (!d||!d.pct&&d.pct!==0) return;
-  // EUR/USD inverse = DXY proxy
-  var pct=d.pct||0; // EUR up = DXY down
-  var isWeak=pct>0.15, isStrong=pct<-0.15;
-  var color=isWeak?'var(--green)':isStrong?'var(--red)':'var(--gold)';
-  var width=isWeak?'25%':isStrong?'75%':'50%';
-  var valTxt=isWeak?'Weak':isStrong?'Strong':'Neutral';
-  var sigTxt=isWeak?'+GOLD':isStrong?'-GOLD':'NEUTRAL';
-  ['dxyTrendBar','sentDXYBar'].forEach(function(id){var e=document.getElementById(id);if(e){e.style.width=width;e.style.background=color;}});
-  ['dxyTrendVal','sentDXYVal'].forEach(function(id){var e=document.getElementById(id);if(e){e.textContent=fmt(d.price,2)+' '+valTxt;e.style.color=color;}});
-  ['dxyTrendSig','sentDXYSig'].forEach(function(id){var e=document.getElementById(id);if(e){e.textContent=sigTxt;e.style.color=color;}});
-}
-
-// ── CHART.JS CHARTS ──
-var GC='rgba(26,37,64,0.6)', TC='#3d4f6e';
-
-function buildLineChart(id, color, data, labels, height) {
-  var ctx=document.getElementById(id); if(!ctx) return;
-  if (charts[id]) { charts[id].destroy(); delete charts[id]; }
-  charts[id]=new Chart(ctx,{
-    type:'line',
-    data:{labels:labels,datasets:[{data:data,borderColor:color,borderWidth:1.5,fill:true,
-      backgroundColor:function(c){var g=c.chart.ctx.createLinearGradient(0,0,0,height||260);
-        g.addColorStop(0,color.replace('rgb(','rgba(').replace(')',',0.15)'));
-        g.addColorStop(1,color.replace('rgb(','rgba(').replace(')',',0)'));return g;},
-      tension:0.3,pointRadius:0}]},
-    options:{responsive:true,maintainAspectRatio:false,animation:false,
-      plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,
-        backgroundColor:'#0c1220',borderColor:'#1a2540',borderWidth:1,titleColor:'#7a8aaa',bodyColor:color}},
-      scales:{x:{ticks:{color:TC,maxTicksLimit:8,font:{family:"JetBrains Mono",size:9}},grid:{color:GC}},
-        y:{position:'right',ticks:{color:TC,font:{family:"JetBrains Mono",size:9}},grid:{color:GC}}}}
-  });
-}
-
-function seriesLabels(series) {
-  return series.map(function(v){
-    var d=new Date(v.t);
-    return (d.getUTCMonth()+1)+'/'+d.getUTCDate()+' '+String(d.getUTCHours()).padStart(2,'0')+':00';
-  });
-}
-
-// ── FETCH SERIES (Yahoo Finance OHLC) ──
-async function fetchSeriesYahoo(yticker, yfi, yfr, size) {
-  var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(yticker)+'?interval='+yfi+'&range='+yfr;
-  var d=await proxyFetch(url);
-  var r=d&&d.chart&&d.chart.result&&d.chart.result[0];
-  if(!r||!r.timestamp) throw new Error('no yahoo data');
-  var ts=r.timestamp, q=r.indicators.quote[0];
-  var series=ts.map(function(t,i){return{t:new Date(t*1000).toISOString(),c:q.close[i]||0,h:q.high[i]||0,l:q.low[i]||0,o:q.open[i]||0};})
-    .filter(function(v){return v.c>0;});
-  return series.slice(-size);
-}
-
-async function fetchSeriesStooq(sticker, size) {
-  // Stooq: bebas CORS, data daily (untuk DXY)
-  var url='https://stooq.com/q/d/l/?s='+encodeURIComponent(sticker)+'&i=h'; // hourly
-  var r=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url),{signal:AbortSignal.timeout(5000)});
-  var text=await r.text();
-  // Parse CSV: Date,Time,Open,High,Low,Close,Volume
-  var lines=text.trim().split('\n').slice(1);
-  var series=lines.map(function(l){
-    var p=l.split(',');
-    if(p.length<6) return null;
-    return{t:p[0]+'T'+(p[1]||'00:00:00'),o:parseFloat(p[2]),h:parseFloat(p[3]),l:parseFloat(p[4]),c:parseFloat(p[5])||0};
-  }).filter(function(v){return v&&v.c>0;});
-  return series.slice(-size);
-}
-
-async function fetchSeries(sym, interval, size) {
-  size = size||80;
-  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X','BTC/USD':'BTC-USD'};
-  var tvToYf={'1min':'2m','5min':'5m','15min':'15m','30min':'30m','1h':'1h','4h':'1h','1day':'1d'};
-  var yfRange={'2m':'1d','5m':'5d','15m':'5d','30m':'5d','1h':'1mo','1d':'6mo'};
-  var yfi=tvToYf[interval]||'1h';
-  var yfr=yfRange[yfi]||'1mo';
-
-  // DXY: pakai stooq.com (^dxy) yang bebas CORS
-  if(sym==='DXY') {
-    try {
-      var s=await fetchSeriesStooq('^dxy', size);
-      if(s&&s.length>5) return s;
-    } catch(e) { console.warn('stooq DXY fail:', e.message); }
-    // Fallback: inverse EUR/USD sebagai proxy
-    try { return await fetchSeriesYahoo('EURUSD=X', yfi, yfr, size); } catch(e2) { return []; }
-  }
-
-  var yticker=yMap[sym]||'GC=F';
-  try {
-    return await fetchSeriesYahoo(yticker, yfi, yfr, size);
-  } catch(e) { console.warn('series fail',sym,e.message); return []; }
-}
-
-// ── TECHNICALS ──
-function calcEMA(arr,p){
-  if(arr.length<p) return null;
-  var k=2/(p+1),e=arr.slice(0,p).reduce(function(a,b){return a+b;},0)/p;
-  for(var i=p;i<arr.length;i++) e=arr[i]*k+e*(1-k);
-  return e;
-}
-function calcRSI(arr,p){
-  p=p||14; if(arr.length<p+1) return null;
-  var g=0,l=0;
-  for(var i=1;i<=p;i++){var d=arr[i]-arr[i-1];if(d>0)g+=d;else l-=d;}
-  var ag=g/p,al=l/p;
-  for(var i=p+1;i<arr.length;i++){var d=arr[i]-arr[i-1];ag=((ag*(p-1))+(d>0?d:0))/p;al=((al*(p-1))+(d<0?-d:0))/p;}
-  return al===0?100:100-100/(1+ag/al);
-}
-function calcATR(series,p){
-  p=p||14; if(series.length<p+1) return null;
-  var trs=[];
-  for(var i=1;i<series.length;i++) trs.push(Math.max(series[i].h-series[i].l,Math.abs(series[i].h-series[i-1].c),Math.abs(series[i].l-series[i-1].c)));
-  return trs.slice(-p).reduce(function(a,b){return a+b;},0)/p;
-}
-
-function updateTechnicals(series) {
-  var closes=series.map(function(v){return v.c;}); if(closes.length<20) return;
-  var price=closes[closes.length-1];
-  var ema20=calcEMA(closes,20),ema50=calcEMA(closes,50),rsi=calcRSI(closes,14),atr=calcATR(series,14);
-  if(rsi!=null){
-    var rc=rsi>70?'var(--red)':rsi<30?'var(--green)':'var(--gold)';
-    setEl('techRSI',rsi.toFixed(1)); var re=document.getElementById('techRSI');if(re)re.style.color=rc;
-    setEl('techRSISig',rsi>70?'OVERBOUGHT':rsi<30?'OVERSOLD':'NEUTRAL'); var rs=document.getElementById('techRSISig');if(rs)rs.style.color=rc;
-  }
-  if(ema20!=null){setEl('techEMA20',fmt(ema20));var es=document.getElementById('techEMA20Sig');if(es){es.textContent=price>ema20?'ABOVE ▲':'BELOW ▼';es.style.color=price>ema20?'var(--green)':'var(--red)';}}
-  if(ema50!=null){setEl('techEMA50',fmt(ema50));var es=document.getElementById('techEMA50Sig');if(es){es.textContent=price>ema50?'ABOVE ▲':'BELOW ▼';es.style.color=price>ema50?'var(--green)':'var(--red)';}}
-  if(atr!=null) setEl('techATR',fmt(atr,1));
-
-  function setBar(prefix,pct,val,sig,color){
-    var b=document.getElementById('bar'+prefix),v=document.getElementById('val'+prefix),s=document.getElementById('sig'+prefix);
-    if(b){b.style.width=pct+'%';b.style.background=color;}if(v){v.textContent=val;v.style.color=color;}if(s){s.textContent=sig;s.style.color=color;}
-  }
-  if(ema20!=null) setBar('EMA20',price>ema20?70:30,fmt(ema20),price>ema20?'ABOVE ▲':'BELOW ▼',price>ema20?'var(--green)':'var(--red)');
-  if(ema50!=null) setBar('EMA50',price>ema50?65:35,fmt(ema50),price>ema50?'ABOVE ▲':'BELOW ▼',price>ema50?'var(--green)':'var(--red)');
-  if(rsi!=null)   setBar('RSI',rsi,rsi.toFixed(1),rsi>70?'OVERBOUGHT':rsi<30?'OVERSOLD':'NEUTRAL',rsi>70?'var(--red)':rsi<30?'var(--green)':'var(--gold)');
-  state.xauSeries=series; computeSignal();
-}
-
-// ── SIGNAL ENGINE ──
-function computeSignal() {
-  var x=state.xau,d=state.dxy; if(!x||!x.price) return;
-  var series=state.xauSeries, closes=series.map(function(v){return v.c;});
-  var ema20=calcEMA(closes,20),ema50=calcEMA(closes,50),rsi=calcRSI(closes,14),atr=calcATR(series,14);
-  var score=0;
-  if(d&&d.pct>0.1) score+=2; // EUR up = DXY down = bullish gold
-  if(x.pct>0) score+=1;
-  if(ema20&&x.price>ema20) score+=1;
-  if(ema50&&x.price>ema50) score+=1;
-  if(rsi&&rsi>45&&rsi<72) score+=1;
-  var isBull=score>=3, p=x.price;
-  var sl_d=atr?atr*1.3:p*0.007, tp1_d=sl_d*1.5, tp2_d=sl_d*2.6, spread=atr?atr*0.4:p*0.002;
-  var elo=fmt(isBull?p-spread:p+spread*0.2), ehi=fmt(p);
-  var sl=fmt(isBull?p-sl_d:p+sl_d), tp1=fmt(isBull?p+tp1_d:p-tp1_d), tp2=fmt(isBull?p+tp2_d:p-tp2_d);
-  var rr='1:'+(tp1_d/sl_d).toFixed(1), conf=Math.min(94,48+score*8);
-  var setup=isBull?'PULLBACK BUY':'PULLBACK SELL';
-  var rat=isBull
-    ?'DXY '+(d&&d.pct>0?'weakening':'flat')+'. XAU momentum '+(x.pct>0?'positive':'mixed')+'. '+(ema20&&x.price>ema20?'Above EMA20. ':'')+' COT bullish.'
-    :'DXY strengthening. XAU facing resistance. '+(ema20&&x.price<ema20?'Below EMA20. ':'')+' Short-term pullback.';
-  var ds=new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'});
-  setEl('signalDate',ds+' · LIVE'); setEl('signalDir',isBull?'LONG ▲':'SHORT ▼');
-  setEl('sigEntry',elo+' – '+ehi); setEl('sigSL',sl); setEl('sigTP1',tp1); setEl('sigTP2',tp2); setEl('sigRR',rr);
-  setEl('signalRationale',rat); setEl('sigDirFull',isBull?'LONG ▲':'SHORT ▼'); setEl('sigSetupType','SETUP: '+setup);
-  setEl('sigEntryFull',elo+' – '+ehi); setEl('sigSLFull',sl); setEl('sigTP1Full',tp1); setEl('sigTP2Full',tp2); setEl('sigRRFull',rr);
-  setEl('sigConf',conf+'%'); setEl('sigRationaleFull',rat);
-  setEl('swingDir',isBull?'LONG ▲':'SHORT ▼'); setEl('swingEntry',elo+' – '+fmt(p));
-  setEl('swingSL',fmt(isBull?p-sl_d*2:p+sl_d*2)); setEl('swingTP1',fmt(isBull?p+tp2_d:p-tp2_d)); setEl('swingTP2',fmt(isBull?p+tp2_d*1.8:p-tp2_d*1.8));
-  ['dashSignalBox','daySignalBox'].forEach(function(id){var e=document.getElementById(id);if(e)e.className='signal-box '+(isBull?'buy':'sell');});
-  ['signalDir','sigDirFull','swingDir'].forEach(function(id){var e=document.getElementById(id);if(e)e.className='signal-label '+(isBull?'buy':'sell');});
-  setStatus('signalStatus','ok','● LIVE');
-  saveSignalToHistory({dir:isBull?'LONG':'SHORT',entry:elo+' – '+ehi,tp1:tp1,tp2:tp2,sl:sl,rr:rr,conf:conf+'%',date:new Date().toISOString()});
-}
-
-// ── SIGNAL HISTORY ──
-var SIG_KEY = 'dfxai_sig_history';
-
-function loadSignalHistory() {
-  try { return JSON.parse(localStorage.getItem(SIG_KEY)) || []; } catch(e) { return []; }
-}
-function saveSignalHistory(arr) {
-  localStorage.setItem(SIG_KEY, JSON.stringify(arr));
-}
-function saveSignalToHistory(sig) {
-  var arr = loadSignalHistory();
-  var now = Date.now();
-  var last = arr[0];
-  if (last && last.dir === sig.dir && last.entry === sig.entry && now - new Date(last.date).getTime() < 300000) return;
-  sig.id = now;
-  sig.result = 'open';
-  arr.unshift(sig);
-  if (arr.length > 100) arr = arr.slice(0, 100);
-  saveSignalHistory(arr);
-  renderSignalHistory();
-}
-function renderSignalHistory() {
-  var arr = loadSignalHistory();
-  var tbody = document.getElementById('signalHistoryBody');
-  var countEl = document.getElementById('histCount');
-  var picker = document.getElementById('sigPickHistory');
-  if (countEl) countEl.textContent = arr.length + ' signals';
-  if (picker) {
-    var openSigs = arr.filter(function(s){ return s.result === 'open'; });
-    picker.innerHTML = '<option value="">— Pilih signal dari riwayat —</option>' +
-      openSigs.map(function(s){
-        var d = new Date(s.date);
-        var label = d.toLocaleDateString('id-ID',{day:'2-digit',month:'short'}) + ' ' +
-                    d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}) +
-                    ' · ' + s.dir + ' · ' + s.entry;
-        return '<option value="'+s.id+'">'+label+'</option>';
-      }).join('');
-  }
-  if (!tbody) return;
-  if (!arr.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--t3);padding:20px">Belum ada riwayat. Signal live akan otomatis tersimpan.</td></tr>';
-    updateWinrateStats(arr);
-    return;
-  }
-  tbody.innerHTML = arr.map(function(s) {
-    var d = new Date(s.date);
-    var dateStr = d.toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'2-digit'}) + ' ' +
-                  d.toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'});
-    var dirClass = s.dir === 'LONG' ? 'up' : 'down';
-    var dirIcon = s.dir === 'LONG' ? '▲' : '▼';
-    var resultHtml = '';
-    if (s.result === 'open') resultHtml = '<span style="color:var(--gold);font-size:9px;letter-spacing:1px">● OPEN</span>';
-    else if (s.result === 'tp1') resultHtml = '<span style="color:var(--green);font-size:9px;letter-spacing:1px">✓ TP1</span>';
-    else if (s.result === 'tp2') resultHtml = '<span style="color:var(--green);font-size:9px;font-weight:700;letter-spacing:1px">✓✓ TP2</span>';
-    else if (s.result === 'sl') resultHtml = '<span style="color:var(--red);font-size:9px;letter-spacing:1px">✗ SL</span>';
-    var aksiHtml = s.result === 'open'
-      ? '<span onclick="window.deleteSignal('+s.id+')" style="color:var(--t3);cursor:pointer;font-size:10px" title="Hapus">🗑</span>'
-      : '<span onclick="window.resetSignalResult('+s.id+')" style="color:var(--t3);cursor:pointer;font-size:10px" title="Reset ke Open">↩</span>';
-    return '<tr>' +
-      '<td style="font-size:9px;color:var(--t3)">'+dateStr+'</td>' +
-      '<td><span class="'+dirClass+'" style="font-weight:700;letter-spacing:1px">'+dirIcon+' '+s.dir+'</span></td>' +
-      '<td style="color:var(--t1)">'+s.entry+'</td>' +
-      '<td class="up">'+s.tp1+'</td>' +
-      '<td class="up">'+s.tp2+'</td>' +
-      '<td class="down">'+s.sl+'</td>' +
-      '<td style="color:var(--gold)">'+s.rr+'</td>' +
-      '<td style="color:var(--blue)">'+s.conf+'</td>' +
-      '<td>'+resultHtml+'</td>' +
-      '<td>'+aksiHtml+'</td>' +
-    '</tr>';
-  }).join('');
-  updateWinrateStats(arr);
-}
-function updateWinrateStats(arr) {
-  var closed = arr.filter(function(s){ return s.result !== 'open'; });
-  var wins = arr.filter(function(s){ return s.result === 'tp1' || s.result === 'tp2'; });
-  var losses = arr.filter(function(s){ return s.result === 'sl'; });
-  var total = closed.length;
-  var winPct = total > 0 ? Math.round(wins.length / total * 100) : null;
-  var longs = closed.filter(function(s){ return s.dir === 'LONG'; });
-  var longWins = longs.filter(function(s){ return s.result === 'tp1' || s.result === 'tp2'; });
-  var shorts = closed.filter(function(s){ return s.dir === 'SHORT'; });
-  var shortWins = shorts.filter(function(s){ return s.result === 'tp1' || s.result === 'tp2'; });
-  var rrVals = closed.filter(function(s){ return s.rr; }).map(function(s){
-    var m = s.rr.match(/1:([\d.]+)/); return m ? parseFloat(m[1]) : null;
-  }).filter(Boolean);
-  var avgRR = rrVals.length ? (rrVals.reduce(function(a,b){return a+b;},0)/rrVals.length).toFixed(1) : null;
-  setEl('wrTotal', arr.length);
-  setEl('wrWin', wins.length);
-  setEl('wrLoss', losses.length);
-  setEl('wrPct', winPct !== null ? winPct+'%' : '—');
-  setEl('wrPctBar', winPct !== null ? winPct+'%' : '—');
-  setEl('wrAvgRR', avgRR ? '1:'+avgRR : '—');
-  setEl('wrLongWR', longs.length ? Math.round(longWins.length/longs.length*100)+'%' : '—');
-  setEl('wrShortWR', shorts.length ? Math.round(shortWins.length/shorts.length*100)+'%' : '—');
-  var bar = document.getElementById('wrBar');
-  if (bar) {
-    bar.style.width = (winPct || 0)+'%';
-    bar.style.background = winPct >= 60 ? 'var(--green)' : winPct >= 40 ? 'var(--gold)' : 'var(--red)';
-  }
-  var wrEl = document.getElementById('wrPct');
-  if (wrEl && winPct !== null) wrEl.style.color = winPct >= 60 ? 'var(--green)' : winPct >= 40 ? 'var(--gold)' : 'var(--red)';
-}
-window.markSignal = function(result) {
-  var picker = document.getElementById('sigPickHistory');
-  var feedback = document.getElementById('markFeedback');
-  if (!picker || !picker.value) {
-    if (feedback) { feedback.textContent = '⚠ Pilih signal dulu dari dropdown.'; feedback.style.color='var(--red)'; }
-    return;
-  }
-  var id = parseInt(picker.value);
-  var arr = loadSignalHistory();
-  var idx = arr.findIndex(function(s){ return s.id === id; });
-  if (idx === -1) { if (feedback) { feedback.textContent = '⚠ Signal tidak ditemukan.'; feedback.style.color='var(--red)'; } return; }
-  arr[idx].result = result;
-  saveSignalHistory(arr);
-  renderSignalHistory();
-  var labels = {tp1:'✓ TP1 Hit ditandai!', tp2:'✓✓ TP2 Hit ditandai!', sl:'✗ SL Hit ditandai.'};
-  var colors = {tp1:'var(--green)', tp2:'var(--green)', sl:'var(--red)'};
-  if (feedback) { feedback.textContent = labels[result]; feedback.style.color = colors[result]; }
-  setTimeout(function(){ if (feedback) feedback.textContent = ''; }, 3000);
-};
-window.deleteSignal = function(id) {
-  var arr = loadSignalHistory().filter(function(s){ return s.id !== id; });
-  saveSignalHistory(arr);
-  renderSignalHistory();
-};
-window.resetSignalResult = function(id) {
-  var arr = loadSignalHistory();
-  var idx = arr.findIndex(function(s){ return s.id === id; });
-  if (idx !== -1) { arr[idx].result = 'open'; saveSignalHistory(arr); renderSignalHistory(); }
-};
-window.clearSignalHistory = function() {
-  if (!confirm('Hapus semua riwayat signal? Tindakan ini tidak bisa dibatalkan.')) return;
-  localStorage.removeItem(SIG_KEY);
-  renderSignalHistory();
-};
-window.addManualSignal = function() {
-  var dir = document.getElementById('manualDir');
-  var result = document.getElementById('manualResult');
-  var entry = document.getElementById('manualEntry');
-  if (!dir || !result || !entry) return;
-  var entryVal = entry.value.trim();
-  if (!entryVal) { alert('Masukkan entry price dulu.'); return; }
-  var sig = {id:Date.now(),dir:dir.value,entry:entryVal,tp1:'—',tp2:'—',sl:'—',rr:'—',conf:'—',date:new Date().toISOString(),result:result.value};
-  var arr = loadSignalHistory();
-  arr.unshift(sig);
-  saveSignalHistory(arr);
-  renderSignalHistory();
-  entry.value = '';
-  var fb = document.getElementById('markFeedback');
-  if (fb) { fb.textContent = '✓ Signal manual ditambahkan.'; fb.style.color='var(--green)'; }
-  setTimeout(function(){ if (fb) fb.textContent = ''; }, 3000);
-};
-
-// ── LOAD CHARTS ──
-async function loadMainChart(interval) {
-  interval=interval||'1h'; state.interval=interval;
-  var s=await fetchSeries('XAU/USD',interval,80);
-  if(s.length){ updateTechnicals(s); buildLineChart('xauMainChart','rgb(240,192,64)',s.map(function(v){return v.c;}),seriesLabels(s),260); }
-}
-async function loadDxyChart() {
-  var s=await fetchSeries('EUR/USD','1h',60);
-  if(s.length) buildLineChart('dxyMiniChart','rgb(77,166,255)',s.map(function(v){return v.c;}),seriesLabels(s),80);
-}
-async function loadH1Charts() {
-  // XAU chart
-  var xs=await fetchSeries('XAU/USD','1h',60);
-  if(xs&&xs.length){ 
-    buildLineChart('xauH1Chart','rgb(240,192,64)',xs.map(function(v){return v.c;}),seriesLabels(xs),300); 
-    updateTechnicals(xs);
-    // Update stats bar XAU
-    updateChartStats('xau', xs);
-  }
-  // DXY chart - pakai stooq via symbol 'DXY'
-  var ds=await fetchSeries('DXY','1h',60);
-  if(ds&&ds.length) {
-    buildLineChart('dxyH1Chart','rgb(77,166,255)',ds.map(function(v){return v.c;}),seriesLabels(ds),300);
-    updateChartStats('dxy', ds);
-  }
-}
-
-function updateChartStats(type, series) {
-  if(!series||!series.length) return;
-  var closes = series.map(function(v){return v.c;});
-  var price = closes[closes.length-1];
-  var open  = closes[0];
-  var chgPct = ((price-open)/open*100);
-  var dir = chgPct>=0;
-  var rsi = calcRSI(closes, 14);
-  var ema20 = calcEMA(closes, Math.min(20,closes.length));
-  var signal = '';
-  if(rsi) { signal = rsi>65?'SHORT ▼':rsi<35?'LONG ▲':(ema20&&price>ema20?'▲ LONG':'▼ SHORT'); }
-
-  if(type==='xau') {
-    var el = document.getElementById('xauChartStats');
-    if(!el) return;
-    el.innerHTML = 
-      '<div><div class="stat-label">XAU PRICE</div><div class="stat-val" style="color:var(--gold)">'+fmt(price)+'</div></div>'+
-      '<div><div class="stat-label">CHANGE</div><div class="stat-val '+(dir?'up':'down')+'">'+(dir?'+':'')+chgPct.toFixed(2)+'%</div></div>'+
-      '<div><div class="stat-label">RSI (14)</div><div class="stat-val '+(rsi&&rsi<35?'up':rsi&&rsi>65?'down':'')+'">'+( rsi?rsi.toFixed(1):'—')+'</div></div>'+
-      '<div><div class="stat-label">SIGNAL</div><div class="stat-val '+(signal.includes('LONG')?'up':'down')+'">'+signal+'</div></div>';
-  } else if(type==='dxy') {
-    var el = document.getElementById('dxyChartStats');
-    if(!el) return;
-    el.innerHTML =
-      '<div><div class="stat-label">DXY PRICE</div><div class="stat-val" style="color:var(--blue)">'+fmt(price,2)+'</div></div>'+
-      '<div><div class="stat-label">CHANGE</div><div class="stat-val '+(dir?'up':'down')+'">'+(dir?'+':'')+chgPct.toFixed(2)+'%</div></div>'+
-      '<div><div class="stat-label">RSI (14)</div><div class="stat-val '+(rsi&&rsi<35?'up':rsi&&rsi>65?'down':'')+'">'+( rsi?rsi.toFixed(1):'—')+'</div></div>'+
-      '<div><div class="stat-label">GOLD IMPACT</div><div class="stat-val '+(dir?'down':'up')+'">'+(dir?'▼ BEARISH':'▲ BULLISH')+'</div></div>';
-  }
-}
-
-// ── COT + CB CHARTS ──
-var cotInited=false, cbInited=false;
-function initCOTCharts() {
-  if(cotInited) return; cotInited=true;
-  var ctx1=document.getElementById('cotBarChart');
-  if(ctx1) new Chart(ctx1,{type:'bar',data:{labels:['W-8','W-7','W-6','W-5','W-4','W-3','W-2','W-1','Now'],datasets:[{label:'Longs',data:[198000,204000,212000,218000,224000,228000,238000,242000,246412],backgroundColor:'rgba(34,217,138,0.5)',borderColor:'rgba(34,217,138,0.8)',borderWidth:1},{label:'Shorts',data:[62000,58000,56000,54000,52000,50000,49000,48500,48230],backgroundColor:'rgba(255,77,109,0.4)',borderColor:'rgba(255,77,109,0.7)',borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{labels:{color:TC,font:{family:'JetBrains Mono',size:9}}}},scales:{x:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}},y:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}}}}});
-  var ctx2=document.getElementById('cotNetChart');
-  if(ctx2) new Chart(ctx2,{type:'line',data:{labels:['W-8','W-7','W-6','W-5','W-4','W-3','W-2','W-1','Now'],datasets:[{label:'Net MM',data:[136000,146000,156000,164000,172000,178000,189000,193500,198182],borderColor:'#f0c040',backgroundColor:'rgba(240,192,64,0.1)',borderWidth:1.5,fill:true,tension:0.3,pointRadius:3}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{labels:{color:TC,font:{family:'JetBrains Mono',size:9}}}},scales:{x:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}},y:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}}}}});
-}
-function initCBChart() {
-  if(cbInited) return; cbInited=true;
-  var ctx=document.getElementById('cbChart');
-  if(ctx) new Chart(ctx,{type:'bar',data:{labels:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],datasets:[{label:'CB Buying (t)',data:[45,52,38,61,72,58,67,83,90,78,88,95],backgroundColor:'rgba(240,192,64,0.4)',borderColor:'rgba(240,192,64,0.8)',borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}},y:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}}}}});
-}
-
-// ── PAGE NAVIGATION ──
-window.switchPage = function(page, el) {
-  document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
-  document.querySelectorAll('.nav-tabs .tab').forEach(function(t){t.classList.remove('active');});
-  var pg=document.getElementById('page-'+page); if(pg) pg.classList.add('active');
-  if(el) el.classList.add('active');
-  if(page==='charts') loadH1Charts();
-  if(page==='cot') initCOTCharts();
-  if(page==='geopolitical') { initCBChart(); window.refreshGeoNews && window.refreshGeoNews(); }
-  if(page==='charts') { if(typeof loadBTCChart==='function') loadBTCChart(); }
-  if(page==='ai') renderAIPanel();
-};
-
-window.changeInterval = function(interval, el) {
-  document.querySelectorAll('.panel-header .tab').forEach(function(t){t.classList.remove('active');});
-  if(el) el.classList.add('active');
-  loadMainChart(interval);
-};
-
-window.setCalFilter = function(type, el) {
-  document.querySelectorAll('.cal-filter-btn').forEach(function(b){
-    b.style.background='transparent'; b.style.borderColor='var(--border)'; b.style.color='var(--text-secondary)';
-  });
-  if(el){el.style.background='rgba(240,192,64,0.08)';el.style.borderColor='rgba(240,192,64,0.3)';el.style.color='var(--gold)';}
-  var frame=document.getElementById('investingCalFrame'); if(!frame) return;
-  var urls={
-    'all':'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=datepicker,timezone&countries=5,22,25,32,4,37&calType=week&timeZone=18&lang=1',
-    'high':'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=datepicker,timezone&countries=5,22,25,32,4,37&importance=3&calType=week&timeZone=18&lang=1',
-    'usd':'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=datepicker,timezone&countries=5&calType=week&timeZone=18&lang=1'
-  };
-  var ld=document.getElementById('calLoading'); if(ld) ld.style.display='flex';
-  frame.src=urls[type]||urls['all'];
-};
-
-// ── GROQ AI ──
-
-async function groqChat(prompt) {
-  var key = GROQ_KEY || localStorage.getItem('dfxai_groq') || '';
-  if (!key) throw new Error('Groq API key belum diset. Masuk ke tab AI Analysis dulu.');
-  var r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      messages: [{role:'user', content: prompt}],
-      temperature: 0.7,
-      max_tokens: 600
-    })
-  });
-  var data = await r.json();
-  if (data.error) throw new Error(data.error.message);
-  return data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content || 'No response';
-}
-
-function formatAIText(txt) {
-  var lines = txt.split('\n').filter(function(l){ return l.trim(); });
-  return lines.map(function(l) {
-    l = l.trim();
-    if (l.match(/^[1-5][\.\)]|^\*\*|^•|-\s/) || l.includes('**')) {
-      l = l.replace(/\*\*/g,'').replace(/^[-•]\s*/,'');
-      return '<div style="padding:8px 0;border-bottom:1px solid rgba(26,37,64,0.5)"><span style="color:var(--gold)">◈ </span>'+l+'</div>';
-    }
-    return '<div style="color:var(--t2);font-size:10px;line-height:1.6;padding:2px 0">'+l+'</div>';
-  }).join('');
-}
-
-window.setGroqKey = function() {
-  var k = document.getElementById('groqKeyInput'); if (!k) return;
-  GROQ_KEY = k.value.trim();
-  localStorage.setItem('dfxai_groq', GROQ_KEY);
-  setEl('groqKeyStatus', '✓ Key saved');
-  renderAIPanel();
-};
-
-window.renderAIPanel = async function() {
-  var key = GROQ_KEY || localStorage.getItem('dfxai_groq') || '';
-  var panel = document.getElementById('aiAnalysisResult');
-  if (!key) {
-    if (panel) panel.innerHTML='<div style="padding:20px;color:var(--t3);text-align:center">Masukkan Groq API key di atas untuk mengaktifkan AI analysis</div>';
-    return;
-  }
-  GROQ_KEY = key;
-  if (panel) panel.innerHTML='<div style="padding:20px;color:var(--gold);text-align:center">⟳ Analyzing market conditions...</div>';
-  var x=state.xau, d=state.dxy, s=state.xauSeries;
-  var closes=s.map(function(v){return v.c;});
-  var ema20=calcEMA(closes,20), ema50=calcEMA(closes,50), rsi=calcRSI(closes,14), atr=calcATR(s,14);
-  var prompt='You are a professional XAUUSD (Gold) trader and analyst. Analyze the following real-time market data and provide a concise trading analysis in 5 bullet points:\n\n'+
-    'XAUUSD Price: '+fmt(x.price)+'\nDaily Change: '+fmtPct(x.pct)+'\nOpen: '+fmt(x.open)+' | High: '+fmt(x.high)+' | Low: '+fmt(x.low)+'\n'+
-    'DXY: '+fmt(d.price,2)+' ('+fmtPct(d.pct)+')\n'+
-    'RSI(14): '+(rsi?rsi.toFixed(1):'N/A')+'\nEMA20: '+fmt(ema20)+' | EMA50: '+fmt(ema50)+'\nATR(14): '+fmt(atr,1)+'\n'+
-    'Price vs EMA20: '+(ema20&&x.price>ema20?'ABOVE (bullish)':'BELOW (bearish)')+'\n'+
-    'Price vs EMA50: '+(ema50&&x.price>ema50?'ABOVE (bullish)':'BELOW (bearish)')+'\n\n'+
-    'Provide: 1) Market Bias (Bullish/Bearish/Neutral) 2) Key levels to watch 3) Entry suggestion 4) Risk factors 5) Short-term outlook. Be concise and direct.';
-  try {
-    var txt = await groqChat(prompt);
-    if (panel) panel.innerHTML='<div style="padding:12px">'+formatAIText(txt)+'</div>';
-  } catch(e) {
-    if (panel) panel.innerHTML='<div style="padding:20px;color:var(--red);text-align:center">⚠ Groq error: '+e.message+'</div>';
-  }
-};
-
-
-// ── GEOPOLITICAL NEWS + AI ──
-var geoNewsCached = [];
-var geoNewsLastFetch = 0;
-var GEO_RSS_SOURCES = [
-  {url:'https://feeds.reuters.com/reuters/topNews',label:'REUTERS'},
-  {url:'https://feeds.bbci.co.uk/news/world/rss.xml',label:'BBC'},
-  {url:'https://www.aljazeera.com/xml/rss/all.xml',label:'AL JAZEERA'},
-  {url:'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',label:'NYT'}
-];
-var GEO_KEYWORDS=['war','conflict','sanction','nuclear','missile','military','troops','ceasefire','attack','crisis','tension','invasion','strike','nato','ukraine','russia','china','taiwan','iran','israel','trade war','tariff','escalat','geopolit','oil','supply chain'];
-
-function geoClassifyTag(t){t=t.toLowerCase();if(/war|conflict|military|nuclear|missile|troops|attack|ceasefire|nato|invasion|strike/.test(t))return'war';if(/trade|tariff|sanction|export|import|supply chain/.test(t))return'trade';if(/oil|energy|gas|opec|pipeline/.test(t))return'energy';if(/fed|rate|inflation|gdp|recession|dollar|yuan/.test(t))return'macro';return'default';}
-function geoGoldImpact(t){t=t.toLowerCase();if(/nuclear|invasion|attack|escalat|missile/.test(t))return'<span style="color:var(--green)">▲ STRONGLY BULLISH</span>';if(/war|conflict|military|crisis|sanction/.test(t))return'<span style="color:var(--green)">▲ BULLISH</span>';if(/ceasefire|peace|deal|agreement/.test(t))return'<span style="color:var(--red)">▼ BEARISH</span>';if(/tariff|trade war|export control/.test(t))return'<span style="color:var(--gold)">◆ MOD. BULLISH</span>';return'<span style="color:var(--t3)">— NEUTRAL</span>';}
-function geoIsRelevant(t){t=t.toLowerCase();return GEO_KEYWORDS.some(function(k){return t.indexOf(k)!==-1;});}
-function geoTimeAgo(ds){try{var d=new Date(ds),diff=Math.floor((Date.now()-d)/60000);if(diff<1)return'Just now';if(diff<60)return diff+'m ago';if(diff<1440)return Math.floor(diff/60)+'h ago';return Math.floor(diff/1440)+'d ago';}catch(e){return'';}}
-
-async function fetchGeoRSS(src){
-  var r=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(src.url),{signal:AbortSignal.timeout(5000)});
-  var xml=(new DOMParser()).parseFromString(await r.text(),'text/xml');
-  return Array.from(xml.querySelectorAll('item')).slice(0,20).map(function(item){
-    return{title:item.querySelector('title')?item.querySelector('title').textContent.trim():'',date:item.querySelector('pubDate')?item.querySelector('pubDate').textContent:'',source:src.label};
-  }).filter(function(a){return geoIsRelevant(a.title)&&a.title.length>10;});
-}
-
-window.refreshGeoNews = async function(){
-  var feed=document.getElementById('geoNewsFeed'),status=document.getElementById('geoNewsStatus');
-  if(!feed)return;
-  feed.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Fetching latest news...</div>';
-  if(status)status.textContent='Loading...';
-  var now=Date.now();
-  if(geoNewsCached.length>0&&now-geoNewsLastFetch<300000){renderGeoNews(geoNewsCached);if(status)status.textContent='Cached · '+new Date(geoNewsLastFetch).toLocaleTimeString();return;}
-  try{
-    var results=await Promise.allSettled(GEO_RSS_SOURCES.map(fetchGeoRSS));
-    var all=[];results.forEach(function(r){if(r.status==='fulfilled')all=all.concat(r.value);});
-    all.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
-    var seen=[];all=all.filter(function(item){var key=item.title.substring(0,30).toLowerCase();if(seen.indexOf(key)!==-1)return false;seen.push(key);return true;}).slice(0,20);
-    if(!all.length)throw new Error('No news');
-    geoNewsCached=all;geoNewsLastFetch=now;
-    renderGeoNews(all);if(status)status.textContent='Updated '+new Date().toLocaleTimeString();
-  }catch(e){
-    var fallback=[
-      {title:'Russia launches overnight drone barrage on Ukrainian cities',date:new Date().toISOString(),source:'REUTERS'},
-      {title:'US-China trade talks stall over semiconductor export controls',date:new Date().toISOString(),source:'BLOOMBERG'},
-      {title:'Iran nuclear program: IAEA warns of enrichment acceleration',date:new Date().toISOString(),source:'BBC'},
-      {title:'NATO member states increase military spending targets',date:new Date().toISOString(),source:'NYT'},
-      {title:'Middle East tensions push oil higher as Red Sea attacks resume',date:new Date().toISOString(),source:'REUTERS'},
-    ];
-    geoNewsCached=fallback;geoNewsLastFetch=now;renderGeoNews(fallback);if(status)status.textContent='Fallback data';
-  }
-};
-
-function renderGeoNews(items){
-  var feed=document.getElementById('geoNewsFeed');if(!feed||!items.length)return;
-  feed.innerHTML=items.map(function(item){
-    var tag=geoClassifyTag(item.title),impact=geoGoldImpact(item.title),time=geoTimeAgo(item.date);
-    return'<div class="geo-news-item">'+
-      '<div><span class="geo-news-tag '+tag+'">'+tag.toUpperCase()+'</span><span style="font-size:9px;color:var(--t3)">'+item.source+'</span></div>'+
-      '<div class="geo-news-title">'+item.title+'</div>'+
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">'+
-        '<div class="geo-news-impact">Gold: '+impact+'</div>'+
-        '<div class="geo-news-meta">'+time+'</div>'+
-      '</div></div>';
-  }).join('');
-}
-
-window.runGeoAI = async function(){
-  var btn=document.getElementById('geoAiBtn'),out=document.getElementById('geoAiOut');
-  if(!out)return;
-  var key=GROQ_KEY||localStorage.getItem('dfxai_groq')||'';
-  if(!key){out.innerHTML='<span style="color:var(--red)">⚠ Groq API key belum diset. Masuk ke tab AI Analysis dulu.</span>';return;}
-  if(btn){btn.textContent='⏳ ANALYZING...';btn.disabled=true;}
-  out.innerHTML='<span style="color:var(--t3)">AI analyzing geopolitical landscape...</span>';
-  var headlines=geoNewsCached.length>0?geoNewsCached.slice(0,10).map(function(n){return'• '+n.title;}).join('\n'):'No live news. Use general geopolitical knowledge.';
-  var prompt='You are a professional gold market analyst. Based on these current geopolitical headlines:\n\n'+headlines+'\n\nProvide a concise geopolitical analysis (max 150 words) covering:\n1. Top 2-3 geopolitical risks currently driving gold\n2. Overall safe-haven sentiment (bullish/bearish/neutral)\n3. Short-term gold price implication\nFormat: bullet points, trader-style, no fluff.';
-  try{
-    var text=await groqChat(prompt);
-    var html=text.replace(/\*\*(.*?)\*\*/g,'<strong style="color:var(--gold)">$1</strong>').replace(/^[•\-\*]\s/gm,'<br>• ').replace(/\n/g,'<br>');
-    out.innerHTML='<div style="color:var(--text)">'+html+'</div><div style="margin-top:8px;font-size:9px;color:var(--t3)">Updated: '+new Date().toLocaleTimeString()+' · Groq llama-3.3-70b</div>';
-    var score=70;
-    if(/strongly bullish|critical|escalat|nuclear/i.test(text))score=85;
-    else if(/bearish|de-escalat|ceasefire/i.test(text))score=45;
-    var se=document.getElementById('geoRiskScore'),le=document.getElementById('geoRiskLabel');
-    if(se)se.textContent=score;
-    if(le){if(score>=75){le.textContent='HIGH RISK';le.style.color='var(--red)';}else if(score>=50){le.textContent='ELEVATED';le.style.color='var(--gold)';}else{le.textContent='MODERATE';le.style.color='var(--blue)';}}
-  }catch(e){out.innerHTML='<span style="color:var(--red)">Error: '+e.message+'</span>';}
-  finally{if(btn){btn.textContent='⚡ ANALYZE';btn.disabled=false;}}
-};
-
-
-// ── BTC via CoinGecko ──
-async function fetchBTCPrice() {
-  try {
-    var url = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true';
-    var r = await fetch(url, {signal: AbortSignal.timeout(5000)});
-    var data = await r.json();
-    if (!data.bitcoin) throw new Error('No BTC data');
-    var price = data.bitcoin.usd;
-    var pct   = data.bitcoin.usd_24h_change;
-    var dir   = pct >= 0;
-    state.btc = {price: price, pct: pct, change: pct};
-    // Ticker update
-    var pEl = document.getElementById('t-btc'), cEl = document.getElementById('t-btc-chg');
-    if (pEl) { pEl.textContent = '$'+price.toLocaleString('en',{maximumFractionDigits:0}); pEl.className='ticker-price '+(dir?'up':'down'); }
-    if (cEl) { cEl.textContent = (dir?'+':'')+pct.toFixed(2)+'%'; cEl.className='ticker-chg '+(dir?'up':'down'); }
-    // Chart page stats
-    var bpEl = document.getElementById('btcPrice');
-    if (bpEl) bpEl.textContent = '$'+price.toLocaleString('en',{maximumFractionDigits:0});
-    var bcEl = document.getElementById('btcChg');
-    if (bcEl) { bcEl.textContent = (dir?'+':'')+pct.toFixed(2)+'%'; bcEl.className='stat-val '+(dir?'up':'down'); }
-  } catch(e) { console.warn('BTC price fetch failed:', e.message); }
-}
-
-var btcChart = null;
-async function loadBTCChart() {
-  var ctx = document.getElementById('btcH1Chart');
-  if (!ctx) return;
-  try {
-    setStatus('btcChartStatus','load','Loading…');
-    // CoinGecko market_chart - gratis tanpa API key, interval auto 1h untuk 2 hari
-    var url = 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=2&interval=hourly';
-    var r = await fetch(url, {signal: AbortSignal.timeout(8000), headers:{'Accept':'application/json'}});
-    if (!r.ok) throw new Error('HTTP '+r.status);
-    var raw = await r.json();
-    if (!raw||!raw.prices||!raw.prices.length) throw new Error('No data');
-
-    // raw.prices: [[timestamp, price], ...]
-    var prices = raw.prices;
-    var series = prices.map(function(p,i){
-      return {t:p[0]/1000, o:p[1], h:p[1], l:p[1], c:p[1]};
-    });
-    state.btcSeries = series;
-    var labels = series.map(function(v){
-      var d = new Date(v.t*1000);
-      return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
-    });
-    var closes = series.map(function(v){ return v.c; });
-
-    if (btcChart) btcChart.destroy();
-    var grad = ctx.getContext('2d').createLinearGradient(0,0,0,260);
-    grad.addColorStop(0,'rgba(168,85,247,0.25)');
-    grad.addColorStop(1,'rgba(168,85,247,0)');
-
-    btcChart = new Chart(ctx, {
-      type:'line',
-      data:{ labels:labels, datasets:[{
-        data:closes, borderColor:'#a855f7', borderWidth:1.5,
-        fill:true, backgroundColor:grad, tension:0.3, pointRadius:0
-      }]},
-      options:{ responsive:true, maintainAspectRatio:false,
-        plugins:{legend:{display:false}},
-        scales:{
-          x:{ticks:{color:'#3d4f6e',font:{size:8},maxTicksLimit:8},grid:{color:'rgba(26,37,64,0.5)'}},
-          y:{ticks:{color:'#3d4f6e',font:{size:8}},grid:{color:'rgba(26,37,64,0.5)'},position:'right'}
-        }
-      }
-    });
-
-    computeBTCSignal(series, closes);
-    setStatus('btcChartStatus','ok','● LIVE');
-  } catch(e) {
-    setStatus('btcChartStatus','err','✕ ERR');
-    var ratEl = document.getElementById('btcRationale');
-    if (ratEl) ratEl.textContent = 'Error: '+e.message+'. CoinGecko mungkin rate-limit, coba lagi.';
-  }
-}
-
-function computeBTCSignal(series, closes) {
-  if (!closes||closes.length < 10) return;
-  var ema20 = calcEMA(closes, Math.min(20, closes.length));
-  var ema50 = calcEMA(closes, Math.min(50, closes.length));
-  var rsi   = calcRSI(closes, Math.min(14, closes.length-1));
-  var atr   = calcATR(series, Math.min(14, series.length-1));
-  var price = closes[closes.length-1];
-  var isBull = ema20 && price > ema20;
-  if (ema20 && ema50) isBull = ema20 > ema50 && price > ema20;
-  if (rsi) { if (rsi > 70) isBull = false; if (rsi < 30) isBull = true; }
-
-  var setup = isBull ? 'MOMENTUM LONG' : 'BREAKDOWN SHORT';
-  if (rsi && rsi < 35) setup = 'OVERSOLD BOUNCE';
-  if (rsi && rsi > 65) setup = 'OVERBOUGHT SHORT';
-
-  var atrV = atr || price * 0.012;
-  var elo  = Math.round(price - atrV*0.3).toLocaleString('en');
-  var ehi  = Math.round(price + atrV*0.3).toLocaleString('en');
-  var sl   = isBull ? Math.round(price - atrV*1.5).toLocaleString('en') : Math.round(price + atrV*1.5).toLocaleString('en');
-  var tp1  = isBull ? Math.round(price + atrV*1.5).toLocaleString('en') : Math.round(price - atrV*1.5).toLocaleString('en');
-  var tp2  = isBull ? Math.round(price + atrV*3.0).toLocaleString('en') : Math.round(price - atrV*3.0).toLocaleString('en');
-  var conf = 60 + (rsi?(isBull?(rsi<50?10:0):(rsi>50?10:0)):0) + (ema20&&ema50?(Math.abs(ema20-ema50)/price>0.005?10:0):0);
-
-  var rat = 'BTC '+(isBull?'bullish':'bearish')+' bias — price '+(isBull?'above':'below')+' EMA20'+
-    (ema50?' & EMA50':'')+'. RSI: '+(rsi?rsi.toFixed(0):'N/A')+'. '+(isBull?'Watch for dip entry.':'Watch for dead-cat bounce entry.');
-
-  var box = document.getElementById('btcSignalBox');
-  if (box) box.className = 'signal-box '+(isBull?'buy':'sell');
-  setEl('btcDir', isBull?'LONG ▲':'SHORT ▼');
-  var dirEl = document.getElementById('btcDir');
-  if (dirEl) dirEl.className = 'signal-label '+(isBull?'buy':'sell');
-  setEl('btcSetup','SETUP: '+setup);
-  setEl('btcEntry','$'+elo+' – $'+ehi);
-  setEl('btcSL','$'+sl);
-  setEl('btcTP1','$'+tp1);
-  setEl('btcTP2','$'+tp2);
-  setEl('btcRR','1:1.5 – 1:3.0');
-  setEl('btcConf',conf+'%');
-  setEl('btcRationale',rat);
-  var rsiEl = document.getElementById('btcRSI');
-  if (rsiEl) { rsiEl.textContent = rsi?rsi.toFixed(1):'—'; rsiEl.className='stat-val '+(rsi&&rsi<35?'up':rsi&&rsi>65?'down':''); }
-  setEl('btcSignalBadge', isBull?'▲ LONG':'▼ SHORT');
-  var badgeEl = document.getElementById('btcSignalBadge');
-  if (badgeEl) badgeEl.className = 'stat-val '+(isBull?'up':'down');
-}
-
-// ── FED WATCH ──
-var FED_MEETINGS = [
-  {label:'Jul 30, 2026'},{label:'Sep 17, 2026'},{label:'Nov 5, 2026'},{label:'Dec 10, 2026'}
-];
-
-window.refreshFedWatch = async function() {
-  renderFedWatchFallback();
-  try {
-    var url='https://www.cmegroup.com/CmeWS/mvc/Quotes/Future/305/G?quoteCodes=null&_='+Date.now();
-    var data=await proxyFetch(url);
-    if(data&&data.quotes) { renderFedWatchFromCME(data.quotes); }
-  } catch(e) { /* keep fallback */ }
-};
-
-function renderFedWatchFromCME(quotes) {
-  var container=document.getElementById('fedWatchBars'); if(!container) return;
-  var html=''; var firstCut=null;
-  quotes.slice(0,4).forEach(function(q,i){
-    var meet=FED_MEETINGS[i]||{label:'Meeting '+(i+1)};
-    var price=parseFloat(q.last)||0;
-    var cutProb=Math.max(0,Math.min(100,100-price)).toFixed(1);
-    var holdProb=(100-cutProb).toFixed(1);
-    if(!firstCut&&cutProb>30){firstCut=cutProb;setEl('fedCutProb',cutProb+'%');}
-    var color=cutProb>60?'var(--green)':cutProb>30?'var(--gold)':'var(--red)';
-    html+=makeFedBar(meet.label,cutProb,holdProb,color);
-  });
-  if(!firstCut)setEl('fedCutProb','<30%');
-  container.innerHTML=html||'<div style="color:var(--t3);font-size:10px;padding:10px">Data tidak tersedia</div>';
-}
-
-function renderFedWatchFallback() {
-  var meetings=[
-    {label:'Jul 30',cut:18,hold:82},
-    {label:'Sep 17',cut:52,hold:48},
-    {label:'Nov 5', cut:71,hold:29},
-    {label:'Dec 10',cut:83,hold:17},
-  ];
-  setEl('fedCutProb',meetings[0].cut+'%');
-  var html=meetings.map(function(m){
-    var color=m.cut>60?'var(--green)':m.cut>30?'var(--gold)':'var(--red)';
-    return makeFedBar(m.label,m.cut,m.hold,color);
-  }).join('');
-  var c=document.getElementById('fedWatchBars'); if(c) c.innerHTML=html;
-}
-
-function makeFedBar(label,cutProb,holdProb,color){
-  return '<div style="margin-bottom:8px">'+
-    '<div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:3px">'+
-      '<span style="color:var(--t2)">'+label+'</span>'+
-      '<span><span style="color:'+color+'">CUT '+cutProb+'%</span> <span style="color:var(--t3)">HOLD '+holdProb+'%</span></span>'+
-    '</div>'+
-    '<div style="display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05)">'+
-      '<div style="width:'+cutProb+'%;background:'+color+';transition:width 0.5s"></div>'+
-      '<div style="flex:1;background:rgba(122,138,170,0.15)"></div>'+
-    '</div></div>';
-}
-
-// ── HIGH IMPACT RELEASES ──
-var RECENT_RELEASES=[
-  {name:'Non-Farm Payrolls (May)',  actual:'139K', forecast:'130K', prev:'147K', beat:true,  date:'Jun 6',  goldImpact:'down'},
-  {name:'Core CPI (May)',           actual:'0.2%', forecast:'0.3%', prev:'0.3%', beat:true,  date:'Jun 11', goldImpact:'up'},
-  {name:'Core PCE (Apr)',           actual:'2.6%', forecast:'2.6%', prev:'2.7%', beat:false, date:'May 30', goldImpact:'up'},
-  {name:'FOMC Rate Decision',       actual:'4.25-4.50%',forecast:'4.25-4.50%',prev:'4.25-4.50%',beat:false,date:'May 7',goldImpact:'neutral'},
-  {name:'GDP Growth Q1 (Final)',    actual:'-0.5%',forecast:'-0.3%',prev:'2.4%',beat:false,  date:'May 29', goldImpact:'up'},
-  {name:'Initial Jobless Claims',   actual:'229K', forecast:'235K', prev:'232K', beat:true,  date:'Jun 12', goldImpact:'down'},
-  {name:'ISM Manufacturing PMI',    actual:'48.7', forecast:'49.5', prev:'49.0', beat:false, date:'Jun 2',  goldImpact:'up'},
-  {name:'Retail Sales (May)',       actual:'0.1%', forecast:'0.3%', prev:'-0.2%',beat:false, date:'Jun 17', goldImpact:'up'},
-];
-
-function renderHighImpact(){
-  var el=document.getElementById('highImpactList'); if(!el) return;
-  var status=document.getElementById('hiStatus'); if(status) status.textContent='Jun 2026';
-  el.innerHTML=RECENT_RELEASES.map(function(r){
-    var beatColor=r.beat?'var(--green)':'var(--red)';
-    var beatLabel=r.beat?'▲ BEAT':'▼ MISS';
-    var goldColor=r.goldImpact==='up'?'var(--green)':r.goldImpact==='down'?'var(--red)':'var(--gold)';
-    var goldLabel=r.goldImpact==='up'?'▲ GOLD+':r.goldImpact==='down'?'▼ GOLD-':'◆ NEUTRAL';
-    return '<div style="padding:9px 12px;border-bottom:1px solid var(--border)">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'+
-        '<span style="font-size:10px;color:var(--t1);font-weight:600">'+r.name+'</span>'+
-        '<span style="font-size:9px;color:var(--t3)">'+r.date+'</span>'+
-      '</div>'+
-      '<div style="display:flex;gap:10px;align-items:center">'+
-        '<span style="font-size:9px;color:var(--t3)">A: <span style="color:var(--t1)">'+r.actual+'</span></span>'+
-        '<span style="font-size:9px;color:var(--t3)">F: '+r.forecast+'</span>'+
-        '<span style="font-size:9px;color:var(--t3)">P: '+r.prev+'</span>'+
-        '<span style="margin-left:auto;font-size:9px;font-weight:700;color:'+beatColor+'">'+beatLabel+'</span>'+
-        '<span style="font-size:9px;font-weight:700;color:'+goldColor+'">'+goldLabel+'</span>'+
-      '</div></div>';
-  }).join('');
-}
-
-// ── NEWS ──
-async function fetchNews() {
-  var panel=document.getElementById('newsPreview'); if(!panel) return;
-  // Fallback curated news (Yahoo Finance news API blocked by CORS)
-  panel.innerHTML=[
-    {t:'Fed officials signal patience on rate cuts',s:'REUTERS',i:'high',d:'Multiple Fed speakers reiterate data-dependent approach.'},
-    {t:'Gold ETF inflows surge to 3-month high',s:'BLOOMBERG',i:'high',d:'Safe-haven demand accelerates amid geopolitical risk.'},
-    {t:'US Treasury yields decline on soft PMI data',s:'WSJ',i:'med',d:'10Y yield falls supporting non-yielding assets.'},
-    {t:'China PBoC adds gold for 18th consecutive month',s:'REUTERS',i:'med',d:'De-dollarization strategy continues at full pace.'},
-    {t:'DXY breaks below key 100.00 support',s:'FXSTREET',i:'high',d:'Dollar weakness broad-based on fiscal concerns.'},
-  ].map(function(a){
-    return '<div class="news-item"><div class="news-header"><span class="news-time">Today</span><span class="news-source">'+a.s+'</span><div class="impact-badge impact-'+a.i+'">'+a.i.toUpperCase()+'</div></div><div class="news-title">'+a.t+'</div><div class="news-desc">'+a.d+'</div></div>';
-  }).join('');
-}
-
-// ── INIT ──
-async function init() {
-  updateMarketBanner();
-  setInterval(updateMarketBanner, 60000);
-  renderSignalHistory();
-  renderHighImpact();
-  await Promise.all([fetchQuotes(), loadMainChart('1h'), loadDxyChart(), fetchNews()]);
-  loadBTCChart();
-  window.refreshFedWatch();
-  setInterval(fetchQuotes, 60000);
-  setInterval(fetchBTCPrice, 60000);
-  setInterval(function(){loadMainChart(state.interval);}, 300000);
-  setInterval(loadBTCChart, 300000);
-}
-
-document.addEventListener('DOMContentLoaded', function() { init(); });
+  setInterval(sync, 2000);
+})();
+</script>
+</body>
+</html>
