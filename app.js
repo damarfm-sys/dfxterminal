@@ -5,6 +5,7 @@
 var TD_KEY  = 'a0680ea88b934543be5eaab23f518f6d';
 var AV_KEY  = 'CVRA2AHLUR4OWPY4';
 var GROQ_KEY = ''; // Set via UI
+var GROQ_MODEL = 'llama-3.3-70b-versatile';
 var GEMINI_KEY = ''; // legacy - unused
 
 // ── STATE ──
