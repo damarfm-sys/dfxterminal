@@ -246,7 +246,7 @@ function seriesLabels(series) {
 // ── FETCH SERIES (Yahoo Finance OHLC) ──
 async function fetchSeries(sym, interval, size) {
   size = size||80;
-  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X','DXY':'EURUSD=X'};
+  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X','DXY':'DX-Y.NYB','BTC/USD':'BTC-USD'};
   var tvToYf={'1min':'2m','5min':'5m','15min':'15m','30min':'30m','1h':'1h','4h':'1h','1day':'1d'};
   var yfRange={'2m':'1d','5m':'5d','15m':'5d','30m':'5d','1h':'1mo','1d':'6mo'};
   var yfi=tvToYf[interval]||'1h';
@@ -511,8 +511,14 @@ async function loadDxyChart() {
 async function loadH1Charts() {
   var xs=await fetchSeries('XAU/USD','1h',60);
   if(xs.length){ buildLineChart('xauH1Chart','rgb(240,192,64)',xs.map(function(v){return v.c;}),seriesLabels(xs),300); updateTechnicals(xs); }
-  var ds=await fetchSeries('EUR/USD','1h',60);
-  if(ds.length) buildLineChart('dxyH1Chart','rgb(77,166,255)',ds.map(function(v){return v.c;}),seriesLabels(ds),300);
+  loadDxyH1Chart();
+}
+
+async function loadDxyH1Chart() {
+  // Coba DX-Y.NYB dulu, fallback ke EURUSD=X jika gagal
+  var ds = await fetchSeries('DXY','1h',60);
+  if (!ds||!ds.length) ds = await fetchSeries('EUR/USD','1h',60);
+  if (ds&&ds.length) buildLineChart('dxyH1Chart','rgb(77,166,255)',ds.map(function(v){return v.c;}),seriesLabels(ds),300);
 }
 
 // ── COT + CB CHARTS ──
