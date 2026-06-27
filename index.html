@@ -284,8 +284,26 @@
 <!-- ═══ CHARTS ═══ -->
 <div id="page-charts" class="page">
   <div class="grid-2" style="margin-bottom:8px">
-    <div class="panel"><div class="panel-header"><div class="panel-title"><span class="accent">XAUUSD</span> · 1H CHART</div></div><div class="chart-wrap" style="height:300px"><canvas id="xauH1Chart"></canvas></div></div>
-    <div class="panel"><div class="panel-header"><div class="panel-title"><span class="accent">DXY</span> · 1H CHART</div></div><div class="chart-wrap" style="height:300px"><canvas id="dxyH1Chart"></canvas></div></div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">XAUUSD</span> · 1H CHART</div></div>
+      <div class="chart-wrap" style="height:270px"><canvas id="xauH1Chart"></canvas></div>
+      <div id="xauChartStats" style="display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);padding:8px 12px;gap:8px">
+        <div><div class="stat-label">XAU PRICE</div><div class="stat-val" style="color:var(--gold)">—</div></div>
+        <div><div class="stat-label">CHANGE</div><div class="stat-val">—</div></div>
+        <div><div class="stat-label">RSI (14)</div><div class="stat-val">—</div></div>
+        <div><div class="stat-label">SIGNAL</div><div class="stat-val">—</div></div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header"><div class="panel-title"><span class="accent">DXY</span> · 1H CHART</div></div>
+      <div class="chart-wrap" style="height:270px"><canvas id="dxyH1Chart"></canvas></div>
+      <div id="dxyChartStats" style="display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);padding:8px 12px;gap:8px">
+        <div><div class="stat-label">DXY PRICE</div><div class="stat-val" style="color:var(--blue)">—</div></div>
+        <div><div class="stat-label">CHANGE</div><div class="stat-val">—</div></div>
+        <div><div class="stat-label">RSI (14)</div><div class="stat-val">—</div></div>
+        <div><div class="stat-label">GOLD IMPACT</div><div class="stat-val">—</div></div>
+      </div>
+    </div>
   </div>
 
   <!-- BTC Row -->
