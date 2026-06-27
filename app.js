@@ -244,23 +244,53 @@ function seriesLabels(series) {
 }
 
 // ── FETCH SERIES (Yahoo Finance OHLC) ──
+async function fetchSeriesYahoo(yticker, yfi, yfr, size) {
+  var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(yticker)+'?interval='+yfi+'&range='+yfr;
+  var d=await proxyFetch(url);
+  var r=d&&d.chart&&d.chart.result&&d.chart.result[0];
+  if(!r||!r.timestamp) throw new Error('no yahoo data');
+  var ts=r.timestamp, q=r.indicators.quote[0];
+  var series=ts.map(function(t,i){return{t:new Date(t*1000).toISOString(),c:q.close[i]||0,h:q.high[i]||0,l:q.low[i]||0,o:q.open[i]||0};})
+    .filter(function(v){return v.c>0;});
+  return series.slice(-size);
+}
+
+async function fetchSeriesStooq(sticker, size) {
+  // Stooq: bebas CORS, data daily (untuk DXY)
+  var url='https://stooq.com/q/d/l/?s='+encodeURIComponent(sticker)+'&i=h'; // hourly
+  var r=await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(url),{signal:AbortSignal.timeout(5000)});
+  var text=await r.text();
+  // Parse CSV: Date,Time,Open,High,Low,Close,Volume
+  var lines=text.trim().split('\n').slice(1);
+  var series=lines.map(function(l){
+    var p=l.split(',');
+    if(p.length<6) return null;
+    return{t:p[0]+'T'+(p[1]||'00:00:00'),o:parseFloat(p[2]),h:parseFloat(p[3]),l:parseFloat(p[4]),c:parseFloat(p[5])||0};
+  }).filter(function(v){return v&&v.c>0;});
+  return series.slice(-size);
+}
+
 async function fetchSeries(sym, interval, size) {
   size = size||80;
-  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X','DXY':'DX-Y.NYB','BTC/USD':'BTC-USD'};
+  var yMap={'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X','BTC/USD':'BTC-USD'};
   var tvToYf={'1min':'2m','5min':'5m','15min':'15m','30min':'30m','1h':'1h','4h':'1h','1day':'1d'};
   var yfRange={'2m':'1d','5m':'5d','15m':'5d','30m':'5d','1h':'1mo','1d':'6mo'};
   var yfi=tvToYf[interval]||'1h';
   var yfr=yfRange[yfi]||'1mo';
+
+  // DXY: pakai stooq.com (^dxy) yang bebas CORS
+  if(sym==='DXY') {
+    try {
+      var s=await fetchSeriesStooq('^dxy', size);
+      if(s&&s.length>5) return s;
+    } catch(e) { console.warn('stooq DXY fail:', e.message); }
+    // Fallback: inverse EUR/USD sebagai proxy
+    try { return await fetchSeriesYahoo('EURUSD=X', yfi, yfr, size); } catch(e2) { return []; }
+  }
+
   var yticker=yMap[sym]||'GC=F';
   try {
-    var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(yticker)+'?interval='+yfi+'&range='+yfr;
-    var d=await proxyFetch(url);
-    var r=d&&d.chart&&d.chart.result&&d.chart.result[0];
-    if(!r||!r.timestamp) throw new Error('no data');
-    var ts=r.timestamp, q=r.indicators.quote[0];
-    var series=ts.map(function(t,i){return{t:new Date(t*1000).toISOString(),c:q.close[i]||0,h:q.high[i]||0,l:q.low[i]||0,o:q.open[i]||0};})
-      .filter(function(v){return v.c>0;});
-    return series.slice(-size);
+    return await fetchSeriesYahoo(yticker, yfi, yfr, size);
   } catch(e) { console.warn('series fail',sym,e.message); return []; }
 }
 
@@ -509,16 +539,51 @@ async function loadDxyChart() {
   if(s.length) buildLineChart('dxyMiniChart','rgb(77,166,255)',s.map(function(v){return v.c;}),seriesLabels(s),80);
 }
 async function loadH1Charts() {
+  // XAU chart
   var xs=await fetchSeries('XAU/USD','1h',60);
-  if(xs.length){ buildLineChart('xauH1Chart','rgb(240,192,64)',xs.map(function(v){return v.c;}),seriesLabels(xs),300); updateTechnicals(xs); }
-  loadDxyH1Chart();
+  if(xs&&xs.length){ 
+    buildLineChart('xauH1Chart','rgb(240,192,64)',xs.map(function(v){return v.c;}),seriesLabels(xs),300); 
+    updateTechnicals(xs);
+    // Update stats bar XAU
+    updateChartStats('xau', xs);
+  }
+  // DXY chart - pakai stooq via symbol 'DXY'
+  var ds=await fetchSeries('DXY','1h',60);
+  if(ds&&ds.length) {
+    buildLineChart('dxyH1Chart','rgb(77,166,255)',ds.map(function(v){return v.c;}),seriesLabels(ds),300);
+    updateChartStats('dxy', ds);
+  }
 }
 
-async function loadDxyH1Chart() {
-  // Coba DX-Y.NYB dulu, fallback ke EURUSD=X jika gagal
-  var ds = await fetchSeries('DXY','1h',60);
-  if (!ds||!ds.length) ds = await fetchSeries('EUR/USD','1h',60);
-  if (ds&&ds.length) buildLineChart('dxyH1Chart','rgb(77,166,255)',ds.map(function(v){return v.c;}),seriesLabels(ds),300);
+function updateChartStats(type, series) {
+  if(!series||!series.length) return;
+  var closes = series.map(function(v){return v.c;});
+  var price = closes[closes.length-1];
+  var open  = closes[0];
+  var chgPct = ((price-open)/open*100);
+  var dir = chgPct>=0;
+  var rsi = calcRSI(closes, 14);
+  var ema20 = calcEMA(closes, Math.min(20,closes.length));
+  var signal = '';
+  if(rsi) { signal = rsi>65?'SHORT ▼':rsi<35?'LONG ▲':(ema20&&price>ema20?'▲ LONG':'▼ SHORT'); }
+
+  if(type==='xau') {
+    var el = document.getElementById('xauChartStats');
+    if(!el) return;
+    el.innerHTML = 
+      '<div><div class="stat-label">XAU PRICE</div><div class="stat-val" style="color:var(--gold)">'+fmt(price)+'</div></div>'+
+      '<div><div class="stat-label">CHANGE</div><div class="stat-val '+(dir?'up':'down')+'">'+(dir?'+':'')+chgPct.toFixed(2)+'%</div></div>'+
+      '<div><div class="stat-label">RSI (14)</div><div class="stat-val '+(rsi&&rsi<35?'up':rsi&&rsi>65?'down':'')+'">'+( rsi?rsi.toFixed(1):'—')+'</div></div>'+
+      '<div><div class="stat-label">SIGNAL</div><div class="stat-val '+(signal.includes('LONG')?'up':'down')+'">'+signal+'</div></div>';
+  } else if(type==='dxy') {
+    var el = document.getElementById('dxyChartStats');
+    if(!el) return;
+    el.innerHTML =
+      '<div><div class="stat-label">DXY PRICE</div><div class="stat-val" style="color:var(--blue)">'+fmt(price,2)+'</div></div>'+
+      '<div><div class="stat-label">CHANGE</div><div class="stat-val '+(dir?'up':'down')+'">'+(dir?'+':'')+chgPct.toFixed(2)+'%</div></div>'+
+      '<div><div class="stat-label">RSI (14)</div><div class="stat-val '+(rsi&&rsi<35?'up':rsi&&rsi>65?'down':'')+'">'+( rsi?rsi.toFixed(1):'—')+'</div></div>'+
+      '<div><div class="stat-label">GOLD IMPACT</div><div class="stat-val '+(dir?'down':'up')+'">'+(dir?'▼ BEARISH':'▲ BULLISH')+'</div></div>';
+  }
 }
 
 // ── COT + CB CHARTS ──
