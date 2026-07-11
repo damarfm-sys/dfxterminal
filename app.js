@@ -638,17 +638,7 @@ window.switchPage = function(page, el) {
   if(page==='charts') loadH1Charts();
   if(page==='cot') initCOTCharts();
   if(page==='geopolitical') { initCBChart(); window.refreshGeoNews && window.refreshGeoNews(false); }
-  if(page==='etf') {
-    renderGoldETF();
-    // Update region totals
-    var data = GOLD_ETF_DATA;
-    var us   = data.funds.filter(function(f){return f.region==='US';}).reduce(function(s,f){return s+f.tonnes;},0);
-    var eu   = data.funds.filter(function(f){return f.region==='EU';}).reduce(function(s,f){return s+f.tonnes;},0);
-    var asia = data.funds.filter(function(f){return f.region==='Asia';}).reduce(function(s,f){return s+f.tonnes;},0);
-    setEl('etfUS', us.toFixed(1)+'T');
-    setEl('etfEU', eu.toFixed(1)+'T');
-    setEl('etfAsia', asia.toFixed(1)+'T');
-  }
+  if(page==='etf') { if(typeof renderGoldETF==='function') renderGoldETF(); }
   if(page==='charts') { if(typeof loadBTCChart==='function') loadBTCChart(); }
   if(page==='ai') renderAIPanel();
 };
@@ -1110,243 +1100,123 @@ function renderHighImpact(){
 }
 
 // ── NEWS ──
-var newsLastFetch = 0;
-var newsCached = [];
-
-async function fetchNewsRSS(src) {
-  var proxies = ['https://api.allorigins.win/raw?url=','https://corsproxy.io/?'];
-  var text = await Promise.any(proxies.map(function(p){
-    return fetch(p+encodeURIComponent(src.url),{signal:AbortSignal.timeout(6000)})
-      .then(function(r){ if(!r.ok) throw new Error('err'); return r.text(); });
-  })).catch(function(){ return null; });
-  if(!text) return [];
-  try {
-    var xml = (new DOMParser()).parseFromString(text,'text/xml');
-    return Array.from(xml.querySelectorAll('item')).slice(0,15).map(function(item){
-      var title = (item.querySelector('title')||{}).textContent||'';
-      var desc  = (item.querySelector('description')||{}).textContent||'';
-      var date  = (item.querySelector('pubDate')||{}).textContent||'';
-      title = title.replace(/<!\[CDATA\[(.*?)\]\]>/,'$1').replace(/<[^>]+>/g,'').trim();
-      desc  = desc.replace(/<!\[CDATA\[(.*?)\]\]>/,'$1').replace(/<[^>]+>/g,'').trim().substring(0,120);
-      var impact = /fed|fomc|nfp|payroll|cpi|pce|gdp|rate|inflation/i.test(title) ? 'high'
-                 : /gold|xau|dollar|dxy|china|oil|yield|treasury/i.test(title) ? 'med' : 'low';
-      return {t:title, d:desc, s:src.label, i:impact, date:date};
-    }).filter(function(a){ return a.t.length > 10; });
-  } catch(e) { return []; }
-}
-
-var NEWS_SOURCES = [
-  {url:'https://feeds.reuters.com/reuters/businessNews', label:'REUTERS'},
-  {url:'https://feeds.reuters.com/reuters/topNews',      label:'REUTERS'},
-  {url:'https://feeds.bbci.co.uk/news/business/rss.xml', label:'BBC'},
-  {url:'https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml', label:'NYT'},
-  {url:'https://www.ft.com/?format=rss',                 label:'FT'},
-];
-
-function newsTimeAgo(ds) {
-  try {
-    var diff = Math.floor((Date.now()-new Date(ds))/60000);
-    if(diff<1) return 'Just now';
-    if(diff<60) return diff+'m ago';
-    if(diff<1440) return Math.floor(diff/60)+'h ago';
-    return Math.floor(diff/1440)+'d ago';
-  } catch(e){ return 'Today'; }
-}
-
-async function fetchNews(force) {
-  var panel = document.getElementById('newsPreview'); if(!panel) return;
-  var now = Date.now();
-  // Cache 15 menit
-  if(!force && newsCached.length > 0 && now - newsLastFetch < 900000) {
-    renderNewsPanel(newsCached); return;
-  }
-  try {
-    var results = await Promise.allSettled(NEWS_SOURCES.map(fetchNewsRSS));
-    var all = [];
-    results.forEach(function(r){ if(r.status==='fulfilled') all=all.concat(r.value); });
-    all.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
-    // Deduplicate
-    var seen = [];
-    all = all.filter(function(item){
-      var key = item.t.substring(0,35).toLowerCase();
-      if(seen.indexOf(key)!==-1) return false;
-      seen.push(key); return true;
-    }).slice(0,10);
-    if(all.length > 0) { newsCached=all; newsLastFetch=now; renderNewsPanel(all); }
-    else throw new Error('no news');
-  } catch(e) {
-    // Fallback static
-    renderNewsPanel([
-      {t:'Fed signals data-dependent approach on rate cuts',s:'REUTERS',i:'high',d:'Multiple Fed speakers reiterate patience on policy easing.',date:''},
-      {t:'Gold ETF inflows hit multi-month high on safe-haven demand',s:'BLOOMBERG',i:'high',d:'Central bank buying and ETF inflows support bullion prices.',date:''},
-      {t:'US Treasury yields dip on soft manufacturing data',s:'WSJ',i:'med',d:'10Y yield falls, supporting non-yielding gold.',date:''},
-      {t:'China PBoC adds gold reserves for 18th consecutive month',s:'REUTERS',i:'med',d:'De-dollarization strategy continues at full pace.',date:''},
-      {t:'DXY weakens below key support amid fiscal concerns',s:'FXSTREET',i:'high',d:'Dollar weakness broad-based, bullish for gold.',date:''},
-    ]);
-  }
-}
-
-function renderNewsPanel(items) {
-  var panel = document.getElementById('newsPreview'); if(!panel) return;
-  panel.innerHTML = items.map(function(a){
-    var time = a.date ? newsTimeAgo(a.date) : 'Today';
-    return '<div class="news-item">'+
-      '<div class="news-header">'+
-        '<span class="news-time">'+time+'</span>'+
-        '<span class="news-source">'+a.s+'</span>'+
-        '<div class="impact-badge impact-'+a.i+'">'+a.i.toUpperCase()+'</div>'+
-      '</div>'+
-      '<div class="news-title">'+a.t+'</div>'+
-      (a.d?'<div class="news-desc">'+a.d+'</div>':'')+
-    '</div>';
+async function fetchNews() {
+  var panel=document.getElementById('newsPreview'); if(!panel) return;
+  // Fallback curated news (Yahoo Finance news API blocked by CORS)
+  panel.innerHTML=[
+    {t:'Fed officials signal patience on rate cuts',s:'REUTERS',i:'high',d:'Multiple Fed speakers reiterate data-dependent approach.'},
+    {t:'Gold ETF inflows surge to 3-month high',s:'BLOOMBERG',i:'high',d:'Safe-haven demand accelerates amid geopolitical risk.'},
+    {t:'US Treasury yields decline on soft PMI data',s:'WSJ',i:'med',d:'10Y yield falls supporting non-yielding assets.'},
+    {t:'China PBoC adds gold for 18th consecutive month',s:'REUTERS',i:'med',d:'De-dollarization strategy continues at full pace.'},
+    {t:'DXY breaks below key 100.00 support',s:'FXSTREET',i:'high',d:'Dollar weakness broad-based on fiscal concerns.'},
+  ].map(function(a){
+    return '<div class="news-item"><div class="news-header"><span class="news-time">Today</span><span class="news-source">'+a.s+'</span><div class="impact-badge impact-'+a.i+'">'+a.i.toUpperCase()+'</div></div><div class="news-title">'+a.t+'</div><div class="news-desc">'+a.d+'</div></div>';
   }).join('');
 }
 
 
 // ── GOLD ETF INFLOW/OUTFLOW ──
-// Data dari World Gold Council / ETF providers (update manual bulanan + live estimate)
 var GOLD_ETF_DATA = {
   funds: [
-    {name:'SPDR Gold Shares',    ticker:'GLD',  tonnes:857.2,  change:+4.2,  changeWk:+8.1,  aum:'$71.2B', region:'US'},
-    {name:'iShares Gold Trust',  ticker:'IAU',  tonnes:312.4,  change:-1.1,  changeWk:+2.4,  aum:'$26.0B', region:'US'},
-    {name:'Invesco DB Gold',     ticker:'DGL',  tonnes:18.6,   change:+0.3,  changeWk:+0.9,  aum:'$1.5B',  region:'US'},
-    {name:'SPDR Gold MiniShares',ticker:'GLDM', tonnes:74.3,   change:+1.8,  changeWk:+3.2,  aum:'$6.2B',  region:'US'},
-    {name:'iShares Physical Gold',ticker:'IGLN',tonnes:236.1,  change:+3.4,  changeWk:+6.7,  aum:'$19.6B', region:'EU'},
-    {name:'Xetra-Gold',          ticker:'4GLD', tonnes:246.8,  change:-0.6,  changeWk:+1.2,  aum:'$20.5B', region:'EU'},
-    {name:'WisdomTree Gold',     ticker:'PHAU', tonnes:198.3,  change:+2.1,  changeWk:+4.8,  aum:'$16.5B', region:'EU'},
-    {name:'ICBC Gold ETF',       ticker:'518880',tonnes:85.4,  change:+5.6,  changeWk:+9.2,  aum:'$7.1B',  region:'Asia'},
+    {name:'SPDR Gold Shares',     ticker:'GLD',   tonnes:857.2,  change:+4.2,  changeWk:+8.1,  aum:'$71.2B', region:'US'},
+    {name:'iShares Gold Trust',   ticker:'IAU',   tonnes:312.4,  change:-1.1,  changeWk:+2.4,  aum:'$26.0B', region:'US'},
+    {name:'SPDR Gold MiniShares', ticker:'GLDM',  tonnes:74.3,   change:+1.8,  changeWk:+3.2,  aum:'$6.2B',  region:'US'},
+    {name:'Invesco DB Gold',      ticker:'DGL',   tonnes:18.6,   change:+0.3,  changeWk:+0.9,  aum:'$1.5B',  region:'US'},
+    {name:'iShares Physical Gold',ticker:'IGLN',  tonnes:236.1,  change:+3.4,  changeWk:+6.7,  aum:'$19.6B', region:'EU'},
+    {name:'Xetra-Gold',           ticker:'4GLD',  tonnes:246.8,  change:-0.6,  changeWk:+1.2,  aum:'$20.5B', region:'EU'},
+    {name:'WisdomTree Gold',      ticker:'PHAU',  tonnes:198.3,  change:+2.1,  changeWk:+4.8,  aum:'$16.5B', region:'EU'},
+    {name:'ICBC Gold ETF',        ticker:'518880',tonnes:85.4,   change:+5.6,  changeWk:+9.2,  aum:'$7.1B',  region:'Asia'},
   ],
-  // Historical monthly flow (tonnes) - last 12 months
   monthly: {
     labels: ['Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun','Jul'],
-    inflow:  [+18.4, +24.1, +31.2, +12.8, -8.4,  +42.1, +38.6, +15.3, +28.7, +19.2, +34.5, +11.8],
-    outflow: [-5.2,  -8.1,  -3.4,  -12.1, -21.3, -4.2,  -6.8,  -9.1,  -5.3,  -8.4,  -3.2,  -6.7],
+    inflow:  [18.4, 24.1, 31.2, 12.8,  0,   42.1, 38.6, 15.3, 28.7, 19.2, 34.5, 11.8],
+    outflow: [-5.2, -8.1, -3.4,-12.1,-21.3, -4.2, -6.8, -9.1, -5.3, -8.4, -3.2, -6.7],
   },
-  lastUpdate: 'Jul 2, 2026'
+  lastUpdate: 'Jul 2026'
 };
 
 var etfChart = null;
 
 function renderGoldETF() {
-  var container = document.getElementById('goldETFContainer');
-  if(!container) return;
-
   var data = GOLD_ETF_DATA;
-  var totalTonnes = data.funds.reduce(function(s,f){ return s+f.tonnes; }, 0);
-  var totalChangeDay = data.funds.reduce(function(s,f){ return s+f.change; }, 0);
-  var totalChangeWk  = data.funds.reduce(function(s,f){ return s+f.changeWk; }, 0);
-  var netMonthly = data.monthly.inflow.map(function(v,i){ return v+data.monthly.outflow[i]; });
-  var lastNet = netMonthly[netMonthly.length-1];
 
-  // Summary cards
-  var summaryEl = document.getElementById('etfSummary');
-  if(summaryEl) {
-    summaryEl.innerHTML =
-      '<div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid rgba(240,192,64,0.2)">'+
-        '<div class="stat-label">TOTAL HOLDINGS</div>'+
-        '<div style="font-family:"Syne",sans-serif;font-size:22px;font-weight:800;color:var(--gold)">'+totalTonnes.toFixed(1)+'T</div>'+
-        '<div style="font-size:9px;color:var(--t3)">All tracked ETFs</div>'+
-      '</div>'+
-      '<div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid '+(totalChangeDay>=0?'rgba(34,217,138,0.2)':'rgba(255,77,109,0.2)')+'">'+
-        '<div class="stat-label">24H FLOW</div>'+
-        '<div style="font-family:"Syne",sans-serif;font-size:22px;font-weight:800;color:'+(totalChangeDay>=0?'var(--green)':'var(--red)')+'">'+
-          (totalChangeDay>=0?'+':'')+totalChangeDay.toFixed(1)+'T'+
-        '</div>'+
-        '<div style="font-size:9px;color:var(--t3)">'+(totalChangeDay>=0?'NET INFLOW':'NET OUTFLOW')+'</div>'+
-      '</div>'+
-      '<div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid '+(totalChangeWk>=0?'rgba(34,217,138,0.2)':'rgba(255,77,109,0.2)')+'">'+
-        '<div class="stat-label">7D FLOW</div>'+
-        '<div style="font-family:"Syne",sans-serif;font-size:22px;font-weight:800;color:'+(totalChangeWk>=0?'var(--green)':'var(--red)')+'">'+
-          (totalChangeWk>=0?'+':'')+totalChangeWk.toFixed(1)+'T'+
-        '</div>'+
-        '<div style="font-size:9px;color:var(--t3)">'+(totalChangeWk>=0?'BULLISH SIGNAL':'BEARISH SIGNAL')+'</div>'+
-      '</div>'+
-      '<div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid '+(lastNet>=0?'rgba(34,217,138,0.2)':'rgba(255,77,109,0.2)')+'">'+
-        '<div class="stat-label">LAST MONTH NET</div>'+
-        '<div style="font-family:"Syne",sans-serif;font-size:22px;font-weight:800;color:'+(lastNet>=0?'var(--green)':'var(--red)')+'">'+
-          (lastNet>=0?'+':'')+lastNet.toFixed(1)+'T'+
-        '</div>'+
-        '<div style="font-size:9px;color:var(--t3)">'+data.lastUpdate+'</div>'+
+  // Hitung totals
+  var totalT    = data.funds.reduce(function(s,f){return s+f.tonnes;},0);
+  var total24h  = data.funds.reduce(function(s,f){return s+f.change;},0);
+  var total7d   = data.funds.reduce(function(s,f){return s+f.changeWk;},0);
+  var netArr    = data.monthly.inflow.map(function(v,i){return v+data.monthly.outflow[i];});
+  var lastNet   = netArr[netArr.length-1];
+
+  // ─ Summary cards ─
+  var sumEl = document.getElementById('etfSummary');
+  if(sumEl) {
+    function card(label, val, unit, color, sub) {
+      return '<div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid '+color.replace('var(','rgba(').replace(')',',0.25)')+'">'+
+        '<div class="stat-label">'+label+'</div>'+
+        '<div style="font-family:\"Syne\",sans-serif;font-size:22px;font-weight:800;color:'+color+'">'+val+'</div>'+
+        '<div style="font-size:9px;color:var(--t3)">'+sub+'</div>'+
       '</div>';
+    }
+    var d24c = total24h>=0?'var(--green)':'var(--red)';
+    var d7c  = total7d>=0?'var(--green)':'var(--red)';
+    var lnc  = lastNet>=0?'var(--green)':'var(--red)';
+    sumEl.innerHTML =
+      card('TOTAL HOLDINGS', totalT.toFixed(1)+'T', '', 'var(--gold)', 'All tracked ETFs') +
+      card('24H FLOW', (total24h>=0?'+':'')+total24h.toFixed(1)+'T', '', d24c, total24h>=0?'NET INFLOW':'NET OUTFLOW') +
+      card('7D FLOW',  (total7d>=0?'+':'')+total7d.toFixed(1)+'T',  '', d7c,  total7d>=0?'BULLISH SIGNAL':'BEARISH SIGNAL') +
+      card('LAST MONTH NET', (lastNet>=0?'+':'')+lastNet.toFixed(1)+'T', '', lnc, data.lastUpdate);
   }
 
-  // ETF table
-  var tableEl = document.getElementById('etfTable');
-  if(tableEl) {
-    tableEl.innerHTML = '<tr><th>FUND</th><th>TICKER</th><th>HOLDINGS</th><th>24H</th><th>7D</th><th>AUM</th><th>SIGNAL</th></tr>' +
+  // ─ Table ─
+  var tbl = document.getElementById('etfTable');
+  if(tbl) {
+    tbl.innerHTML = '<tr><th>FUND</th><th>TICKER</th><th>HOLDINGS</th><th>24H</th><th>7D</th><th>AUM</th><th>SIGNAL</th></tr>' +
       data.funds.map(function(f){
-        var d24color = f.change>=0?'var(--green)':'var(--red)';
-        var d7color  = f.changeWk>=0?'var(--green)':'var(--red)';
-        var signal   = f.changeWk>3?'▲ INFLOW':f.changeWk<-3?'▼ OUTFLOW':'◆ NEUTRAL';
-        var sigColor = f.changeWk>3?'var(--green)':f.changeWk<-3?'var(--red)':'var(--gold)';
+        var d24c  = f.change>=0?'var(--green)':'var(--red)';
+        var d7c   = f.changeWk>=0?'var(--green)':'var(--red)';
+        var sig   = f.changeWk>3?'▲ INFLOW':f.changeWk<-3?'▼ OUTFLOW':'◆ NEUTRAL';
+        var sigC  = f.changeWk>3?'var(--green)':f.changeWk<-3?'var(--red)':'var(--gold)';
         return '<tr>'+
-          '<td style="color:var(--t1)">'+f.name+'</td>'+
+          '<td>'+f.name+'</td>'+
           '<td style="color:var(--blue);font-weight:700">'+f.ticker+'</td>'+
-          '<td style="color:var(--t1)">'+f.tonnes.toFixed(1)+'T</td>'+
-          '<td style="color:'+d24color+'">'+(f.change>=0?'+':'')+f.change.toFixed(1)+'T</td>'+
-          '<td style="color:'+d7color+'">'+(f.changeWk>=0?'+':'')+f.changeWk.toFixed(1)+'T</td>'+
+          '<td>'+f.tonnes.toFixed(1)+'T</td>'+
+          '<td style="color:'+d24c+'">'+(f.change>=0?'+':'')+f.change.toFixed(1)+'T</td>'+
+          '<td style="color:'+d7c+'">'+(f.changeWk>=0?'+':'')+f.changeWk.toFixed(1)+'T</td>'+
           '<td style="color:var(--t2)">'+f.aum+'</td>'+
-          '<td style="color:'+sigColor+';font-weight:700">'+signal+'</td>'+
+          '<td style="color:'+sigC+';font-weight:700">'+sig+'</td>'+
         '</tr>';
       }).join('');
   }
 
-  // Build flow chart
-  renderETFFlowChart();
-}
+  // ─ Region totals ─
+  ['US','EU','Asia'].forEach(function(r){
+    var t = data.funds.filter(function(f){return f.region===r;}).reduce(function(s,f){return s+f.tonnes;},0);
+    setEl('etf'+r, t.toFixed(1)+'T');
+  });
 
-function renderETFFlowChart() {
+  // ─ Flow chart ─
   var ctx = document.getElementById('etfFlowChart');
   if(!ctx) return;
-  if(etfChart) etfChart.destroy();
+  if(etfChart) { etfChart.destroy(); etfChart=null; }
 
-  var data = GOLD_ETF_DATA;
-  var net  = data.monthly.inflow.map(function(v,i){ return +(v+data.monthly.outflow[i]).toFixed(1); });
+  var net = data.monthly.inflow.map(function(v,i){return +(v+data.monthly.outflow[i]).toFixed(1);});
 
   etfChart = new Chart(ctx, {
     type: 'bar',
     data: {
       labels: data.monthly.labels,
       datasets: [
-        {
-          label: 'Inflow (T)',
-          data: data.monthly.inflow,
-          backgroundColor: 'rgba(34,217,138,0.5)',
-          borderColor: 'rgba(34,217,138,0.8)',
-          borderWidth: 1,
-          borderRadius: 2,
-        },
-        {
-          label: 'Outflow (T)',
-          data: data.monthly.outflow,
-          backgroundColor: 'rgba(255,77,109,0.5)',
-          borderColor: 'rgba(255,77,109,0.8)',
-          borderWidth: 1,
-          borderRadius: 2,
-        },
-        {
-          label: 'Net Flow (T)',
-          data: net,
-          type: 'line',
-          borderColor: '#f0c040',
-          borderWidth: 2,
-          pointRadius: 3,
-          pointBackgroundColor: '#f0c040',
-          fill: false,
-          tension: 0.3,
-          yAxisID: 'y',
-        }
+        {label:'Inflow (T)',  data:data.monthly.inflow,  backgroundColor:'rgba(34,217,138,0.5)',borderColor:'rgba(34,217,138,0.8)',borderWidth:1,borderRadius:2},
+        {label:'Outflow (T)', data:data.monthly.outflow, backgroundColor:'rgba(255,77,109,0.5)',borderColor:'rgba(255,77,109,0.8)',borderWidth:1,borderRadius:2},
+        {label:'Net (T)', data:net, type:'line', borderColor:'#f0c040', borderWidth:2, pointRadius:3, pointBackgroundColor:'#f0c040', fill:false, tension:0.3}
       ]
     },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: {
-        legend: { labels: { color: '#7a8aaa', font: { size: 9 } } },
-        tooltip: { mode: 'index', intersect: false }
-      },
-      scales: {
-        x: { ticks: { color:'#3d4f6e', font:{size:9} }, grid: { color:'rgba(26,37,64,0.5)' } },
-        y: { ticks: { color:'#3d4f6e', font:{size:9} }, grid: { color:'rgba(26,37,64,0.5)' }, position:'left' }
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#7a8aaa',font:{size:9}}}},
+      scales:{
+        x:{ticks:{color:'#3d4f6e',font:{size:9}},grid:{color:'rgba(26,37,64,0.5)'}},
+        y:{ticks:{color:'#3d4f6e',font:{size:9}},grid:{color:'rgba(26,37,64,0.5)'},position:'left'}
       }
     }
   });
@@ -1361,16 +1231,10 @@ async function init() {
   await Promise.all([fetchQuotes(), loadMainChart('1h'), loadDxyChart(), fetchNews()]);
   loadBTCChart();
   window.refreshFedWatch();
-  // Auto-refresh intervals
-  setInterval(fetchQuotes, 60000);                          // harga tiap 1 menit
-  setInterval(fetchBTCPrice, 60000);                        // BTC tiap 1 menit
-  setInterval(function(){ fetchNews(true); }, 900000);      // news tiap 15 menit
-  setInterval(function(){loadMainChart(state.interval);}, 300000); // chart tiap 5 menit
-  setInterval(loadBTCChart, 300000);                        // BTC chart tiap 5 menit
-  // Geo news auto-refresh (bahkan saat tab belum dibuka)
-  setInterval(function(){
-    if(geoNewsCached.length > 0) window.refreshGeoNews(true);
-  }, 600000); // tiap 10 menit
+  setInterval(fetchQuotes, 60000);
+  setInterval(fetchBTCPrice, 60000);
+  setInterval(function(){loadMainChart(state.interval);}, 300000);
+  setInterval(loadBTCChart, 300000);
 }
 
 document.addEventListener('DOMContentLoaded', function() { init(); });
