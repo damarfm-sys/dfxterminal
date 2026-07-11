@@ -758,31 +758,45 @@ function geoGoldImpact(t){t=t.toLowerCase();if(/nuclear|invasion|attack|escalat|
 function geoIsRelevant(t){t=t.toLowerCase();return GEO_KEYWORDS.some(function(k){return t.indexOf(k)!==-1;});}
 function geoTimeAgo(ds){try{var d=new Date(ds),diff=Math.floor((Date.now()-d)/60000);if(diff<1)return'Just now';if(diff<60)return diff+'m ago';if(diff<1440)return Math.floor(diff/60)+'h ago';return Math.floor(diff/1440)+'d ago';}catch(e){return'';}}
 
+async function fetchGeoNewsAPI() {
+  var key = NEWS_API_KEY || localStorage.getItem('dfxai_newsapi') || '';
+  if(!key) return [];
+  try {
+    var q = 'war+conflict+sanctions+geopolitical+military+gold+Ukraine+Russia+China+Taiwan+Iran+Israel+NATO';
+    var url = 'https://newsapi.org/v2/everything?q='+q+
+      '&language=en&sortBy=publishedAt&pageSize=20&apiKey='+key;
+    var r = await fetch(url, {signal: AbortSignal.timeout(8000)});
+    var data = await r.json();
+    if(!data.articles || !data.articles.length) return [];
+    return data.articles
+      .filter(function(a){ return a.title && a.title !== '[Removed]' && geoIsRelevant(a.title); })
+      .map(function(a){
+        return {
+          title: a.title.replace(/\s*-\s*[\w\s]+$/, '').trim(),
+          date:  a.publishedAt || '',
+          source:(a.source && a.source.name) ? a.source.name.toUpperCase().substring(0,12) : 'NEWS'
+        };
+      });
+  } catch(e) { return []; }
+}
+
 async function fetchGeoRSS(src){
-  // Race dua proxy, siapa cepat menang
-  var proxies = [
-    'https://api.allorigins.win/raw?url=',
-    'https://corsproxy.io/?'
-  ];
-  var text = null;
+  // RSS via proxy sebagai fallback
+  var proxies = ['https://api.allorigins.win/raw?url=','https://corsproxy.io/?'];
   var r = await Promise.any(proxies.map(function(p){
-    return fetch(p + encodeURIComponent(src.url), {signal:AbortSignal.timeout(6000)}).then(function(res){
-      if(!res.ok) throw new Error('not ok');
-      return res.text();
-    });
+    return fetch(p+encodeURIComponent(src.url),{signal:AbortSignal.timeout(6000)})
+      .then(function(res){ if(!res.ok) throw new Error('not ok'); return res.text(); });
   })).catch(function(){ return null; });
   if(!r) return [];
   try {
     var xml=(new DOMParser()).parseFromString(r,'text/xml');
-    var items = Array.from(xml.querySelectorAll('item'));
-    return items.slice(0,30).map(function(item){
-      var title = item.querySelector('title') ? item.querySelector('title').textContent.trim() : '';
-      // Hapus CDATA wrapper jika ada
-      title = title.replace(/<!\[CDATA\[(.*?)\]\]>/,'$1').trim();
-      var date  = item.querySelector('pubDate') ? item.querySelector('pubDate').textContent : '';
-      return{title:title, date:date, source:src.label};
+    return Array.from(xml.querySelectorAll('item')).slice(0,20).map(function(item){
+      var title=(item.querySelector('title')||{}).textContent||'';
+      title=title.replace(/<!\[CDATA\[(.*?)\]\]>/g,'$1').replace(/<[^>]+>/g,'').trim();
+      var date=(item.querySelector('pubDate')||{}).textContent||'';
+      return{title:title,date:date,source:src.label};
     }).filter(function(a){return geoIsRelevant(a.title)&&a.title.length>10;});
-  } catch(e) { return []; }
+  } catch(e){ return []; }
 }
 
 window.refreshGeoNews = async function(force){
@@ -798,10 +812,16 @@ window.refreshGeoNews = async function(force){
   feed.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">⟳ Fetching latest news...</div>';
   if(status)status.textContent='Loading...';
   try{
-    // Fetch semua sumber paralel, ambil yang berhasil
-    var results=await Promise.allSettled(GEO_RSS_SOURCES.map(fetchGeoRSS));
     var all=[];
-    results.forEach(function(r){if(r.status==='fulfilled'&&r.value)all=all.concat(r.value);});
+    // Coba NewsAPI dulu (lebih reliable)
+    var naArticles = await fetchGeoNewsAPI();
+    if(naArticles.length > 0) {
+      all = naArticles;
+    } else {
+      // Fallback: RSS feeds
+      var results=await Promise.allSettled(GEO_RSS_SOURCES.map(fetchGeoRSS));
+      results.forEach(function(r){if(r.status==='fulfilled'&&r.value)all=all.concat(r.value);});
+    }
     // Sort by date terbaru
     all.sort(function(a,b){
       var da=new Date(a.date)||0, db=new Date(b.date)||0;
@@ -1100,18 +1120,118 @@ function renderHighImpact(){
 }
 
 // ── NEWS ──
-async function fetchNews() {
-  var panel=document.getElementById('newsPreview'); if(!panel) return;
-  // Fallback curated news (Yahoo Finance news API blocked by CORS)
-  panel.innerHTML=[
-    {t:'Fed officials signal patience on rate cuts',s:'REUTERS',i:'high',d:'Multiple Fed speakers reiterate data-dependent approach.'},
-    {t:'Gold ETF inflows surge to 3-month high',s:'BLOOMBERG',i:'high',d:'Safe-haven demand accelerates amid geopolitical risk.'},
-    {t:'US Treasury yields decline on soft PMI data',s:'WSJ',i:'med',d:'10Y yield falls supporting non-yielding assets.'},
-    {t:'China PBoC adds gold for 18th consecutive month',s:'REUTERS',i:'med',d:'De-dollarization strategy continues at full pace.'},
-    {t:'DXY breaks below key 100.00 support',s:'FXSTREET',i:'high',d:'Dollar weakness broad-based on fiscal concerns.'},
-  ].map(function(a){
-    return '<div class="news-item"><div class="news-header"><span class="news-time">Today</span><span class="news-source">'+a.s+'</span><div class="impact-badge impact-'+a.i+'">'+a.i.toUpperCase()+'</div></div><div class="news-title">'+a.t+'</div><div class="news-desc">'+a.d+'</div></div>';
+// ── NEWS via NewsAPI.org ──
+var NEWS_API_KEY = localStorage.getItem('dfxai_newsapi') || '';
+var newsLastFetch = 0;
+var newsCached = [];
+
+// Simpan key NewsAPI (dipanggil dari UI jika user mau set key)
+window.setNewsAPIKey = function(key) {
+  NEWS_API_KEY = (key||'').trim();
+  localStorage.setItem('dfxai_newsapi', NEWS_API_KEY);
+};
+
+function newsTimeAgo(ds) {
+  try {
+    var diff = Math.floor((Date.now() - new Date(ds)) / 60000);
+    if(diff < 1)    return 'Just now';
+    if(diff < 60)   return diff + 'm ago';
+    if(diff < 1440) return Math.floor(diff/60) + 'h ago';
+    return Math.floor(diff/1440) + 'd ago';
+  } catch(e) { return 'Today'; }
+}
+
+function renderNewsPanel(items) {
+  var panel = document.getElementById('newsPreview'); if(!panel) return;
+  panel.innerHTML = items.map(function(a) {
+    var time = a.date ? newsTimeAgo(a.date) : 'Today';
+    var impact = /fed|fomc|nfp|payroll|cpi|pce|gdp|rate decision|inflation/i.test(a.t) ? 'high'
+               : /gold|xau|dollar|dxy|china|oil|yield|treasury|war|conflict/i.test(a.t) ? 'med' : 'low';
+    return '<div class="news-item">'+
+      '<div class="news-header">'+
+        '<span class="news-time">'+time+'</span>'+
+        '<span class="news-source">'+a.s+'</span>'+
+        '<div class="impact-badge impact-'+impact+'">'+impact.toUpperCase()+'</div>'+
+      '</div>'+
+      '<div class="news-title">'+a.t+'</div>'+
+      (a.d ? '<div class="news-desc">'+a.d+'</div>' : '')+
+    '</div>';
   }).join('');
+}
+
+function renderNewsFallback() {
+  renderNewsPanel([
+    {t:'Fed officials signal patience on rate cuts', s:'REUTERS', d:'Multiple Fed speakers reiterate data-dependent approach.', date:''},
+    {t:'Gold ETF inflows surge to 3-month high', s:'BLOOMBERG', d:'Safe-haven demand accelerates amid geopolitical risk.', date:''},
+    {t:'US Treasury yields decline on soft PMI data', s:'WSJ', d:'10Y yield falls supporting non-yielding assets.', date:''},
+    {t:'China PBoC adds gold for 18th consecutive month', s:'REUTERS', d:'De-dollarization strategy continues at full pace.', date:''},
+    {t:'DXY breaks below key 100.00 support', s:'FXSTREET', d:'Dollar weakness broad-based on fiscal concerns.', date:''},
+  ]);
+}
+
+async function fetchNews(force) {
+  var now = Date.now();
+  // Cache 15 menit
+  if(!force && newsCached.length > 0 && now - newsLastFetch < 900000) {
+    renderNewsPanel(newsCached); return;
+  }
+
+  var key = NEWS_API_KEY || localStorage.getItem('dfxai_newsapi') || '';
+  if(!key) { renderNewsFallback(); return; }
+
+  // Query: gold + forex + macro news
+  var queries = [
+    'gold+XAU+bullion',
+    'Federal+Reserve+rate',
+    'dollar+DXY+forex',
+  ];
+
+  try {
+    var allArticles = [];
+    // Ambil dari 2 query paralel (hemat request - max 100/hari)
+    var results = await Promise.allSettled(queries.slice(0,2).map(function(q) {
+      var url = 'https://newsapi.org/v2/everything?q='+q+
+        '&language=en&sortBy=publishedAt&pageSize=5'+
+        '&apiKey='+key;
+      return fetch(url, {signal: AbortSignal.timeout(8000)})
+        .then(function(r) { return r.json(); });
+    }));
+
+    results.forEach(function(r) {
+      if(r.status === 'fulfilled' && r.value && r.value.articles) {
+        r.value.articles.forEach(function(a) {
+          if(a.title && a.title !== '[Removed]') {
+            allArticles.push({
+              t: a.title.replace(/\s*-\s*[\w\s]+$/, '').trim(), // hapus nama sumber di akhir judul
+              s: (a.source && a.source.name) ? a.source.name.toUpperCase().substring(0,12) : 'NEWS',
+              d: a.description ? a.description.substring(0, 120) : '',
+              date: a.publishedAt || ''
+            });
+          }
+        });
+      }
+    });
+
+    if(allArticles.length === 0) throw new Error('No articles');
+
+    // Sort by date, deduplicate
+    allArticles.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
+    var seen = [];
+    allArticles = allArticles.filter(function(a) {
+      var key2 = a.t.substring(0,30).toLowerCase();
+      if(seen.indexOf(key2) !== -1) return false;
+      seen.push(key2); return true;
+    }).slice(0, 8);
+
+    newsCached = allArticles;
+    newsLastFetch = now;
+    renderNewsPanel(allArticles);
+
+  } catch(e) {
+    console.warn('NewsAPI failed:', e.message);
+    if(newsCached.length > 0) renderNewsPanel(newsCached);
+    else renderNewsFallback();
+  }
 }
 
 
@@ -1224,6 +1344,11 @@ function renderGoldETF() {
 
 // ── INIT ──
 async function init() {
+  // Set NewsAPI key jika belum ada di localStorage
+  if(!localStorage.getItem('dfxai_newsapi')) {
+    localStorage.setItem('dfxai_newsapi', 'efea666c7f474dc68679027c106d58d5');
+  }
+  NEWS_API_KEY = localStorage.getItem('dfxai_newsapi');
   updateMarketBanner();
   setInterval(updateMarketBanner, 60000);
   renderSignalHistory();
