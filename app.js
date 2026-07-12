@@ -758,24 +758,39 @@ function geoGoldImpact(t){t=t.toLowerCase();if(/nuclear|invasion|attack|escalat|
 function geoIsRelevant(t){t=t.toLowerCase();return GEO_KEYWORDS.some(function(k){return t.indexOf(k)!==-1;});}
 function geoTimeAgo(ds){try{var d=new Date(ds),diff=Math.floor((Date.now()-d)/60000);if(diff<1)return'Just now';if(diff<60)return diff+'m ago';if(diff<1440)return Math.floor(diff/60)+'h ago';return Math.floor(diff/1440)+'d ago';}catch(e){return'';}}
 
+// Domain blacklist - sumber tidak kredibel
+var NEWS_BLACKLIST = ['beforeitsnews','infowars','naturalnews','sgtreport','whatdoesitmean',
+  'rense','veteranstoday','globalresearch','activistpost','thedailybeast','thegatewaypundit'];
+
+function isCredibleSource(source_id) {
+  if(!source_id) return true;
+  var s = source_id.toLowerCase();
+  if(NEWS_BLACKLIST.some(function(b){ return s.indexOf(b) !== -1; })) return false;
+  return true;
+}
+
 async function fetchGeoNewsAPI() {
   var key = NEWS_DATA_KEY || localStorage.getItem('dfxai_newsdata') || '';
   if(!key) return [];
   try {
-    // newsdata.io: support CORS dari browser, gratis 100 req/hari
     var url = 'https://newsdata.io/api/1/news?apikey='+key+
-      '&q=war+conflict+gold+geopolitical+military+sanctions+Russia+China+Iran+NATO'+
-      '&language=en&size=10';
+      '&q=Ukraine+Russia+OR+China+Taiwan+OR+Iran+sanctions+OR+NATO+military+OR+Middle+East+conflict'+
+      '&language=en&size=10&prioritydomain=top';
     var r = await fetch(url, {signal: AbortSignal.timeout(8000)});
     var data = await r.json();
     if(data.status !== 'success' || !data.results || !data.results.length) return [];
     return data.results
-      .filter(function(a){ return a.title && geoIsRelevant(a.title); })
+      .filter(function(a){
+        return a.title && a.title.length > 15
+          && geoIsRelevant(a.title)
+          && isCredibleSource(a.source_id)
+          && (Date.now() - new Date(a.pubDate) < 259200000);
+      })
       .map(function(a){
         return {
           title: a.title,
           date:  a.pubDate || '',
-          source: a.source_id ? a.source_id.toUpperCase().substring(0,12) : 'NEWS'
+          source: a.source_id ? a.source_id.toUpperCase().substring(0,10) : 'NEWS'
         };
       });
   } catch(e) { console.warn('newsdata geo fail:', e.message); return []; }
@@ -1181,23 +1196,28 @@ async function fetchNews(force) {
 
   try {
     var allArticles = [];
-    // newsdata.io — support CORS browser, 1 request hemat quota
+    // newsdata.io — support CORS browser, prioritydomain=top untuk sumber terpercaya
     var url = 'https://newsdata.io/api/1/news?apikey='+key+
-      '&q=gold+XAU+Federal+Reserve+dollar+forex&language=en&size=10';
+      '&q=gold+XAU+Federal+Reserve+OR+dollar+DXY+OR+interest+rate+inflation&language=en&size=10&prioritydomain=top';
     var r = await fetch(url, {signal: AbortSignal.timeout(8000)});
     var data = await r.json();
 
     if(data.status === 'success' && data.results && data.results.length) {
-      data.results.forEach(function(a) {
-        if(a.title) {
+      data.results
+        .filter(function(a){
+          return a.title
+            && a.title.length > 10
+            && isCredibleSource(a.source_id)
+            && (Date.now() - new Date(a.pubDate) < 259200000); // max 3 hari
+        })
+        .forEach(function(a) {
           allArticles.push({
             t: a.title,
             s: a.source_id ? a.source_id.toUpperCase().substring(0,12) : 'NEWS',
             d: a.description ? a.description.substring(0,120) : '',
             date: a.pubDate || ''
           });
-        }
-      });
+        });
     }
 
     if(allArticles.length === 0) throw new Error('No articles');
