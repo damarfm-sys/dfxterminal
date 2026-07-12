@@ -759,25 +759,26 @@ function geoIsRelevant(t){t=t.toLowerCase();return GEO_KEYWORDS.some(function(k)
 function geoTimeAgo(ds){try{var d=new Date(ds),diff=Math.floor((Date.now()-d)/60000);if(diff<1)return'Just now';if(diff<60)return diff+'m ago';if(diff<1440)return Math.floor(diff/60)+'h ago';return Math.floor(diff/1440)+'d ago';}catch(e){return'';}}
 
 async function fetchGeoNewsAPI() {
-  var key = NEWS_API_KEY || localStorage.getItem('dfxai_newsapi') || '';
+  var key = NEWS_DATA_KEY || localStorage.getItem('dfxai_newsdata') || '';
   if(!key) return [];
   try {
-    var q = 'war+conflict+sanctions+geopolitical+military+gold+Ukraine+Russia+China+Taiwan+Iran+Israel+NATO';
-    var url = 'https://newsapi.org/v2/everything?q='+q+
-      '&language=en&sortBy=publishedAt&pageSize=20&apiKey='+key;
+    // newsdata.io: support CORS dari browser, gratis 100 req/hari
+    var url = 'https://newsdata.io/api/1/news?apikey='+key+
+      '&q=war+conflict+gold+geopolitical+military+sanctions+Russia+China+Iran+NATO'+
+      '&language=en&size=10';
     var r = await fetch(url, {signal: AbortSignal.timeout(8000)});
     var data = await r.json();
-    if(!data.articles || !data.articles.length) return [];
-    return data.articles
-      .filter(function(a){ return a.title && a.title !== '[Removed]' && geoIsRelevant(a.title); })
+    if(data.status !== 'success' || !data.results || !data.results.length) return [];
+    return data.results
+      .filter(function(a){ return a.title && geoIsRelevant(a.title); })
       .map(function(a){
         return {
-          title: a.title.replace(/\s*-\s*[\w\s]+$/, '').trim(),
-          date:  a.publishedAt || '',
-          source:(a.source && a.source.name) ? a.source.name.toUpperCase().substring(0,12) : 'NEWS'
+          title: a.title,
+          date:  a.pubDate || '',
+          source: a.source_id ? a.source_id.toUpperCase().substring(0,12) : 'NEWS'
         };
       });
-  } catch(e) { return []; }
+  } catch(e) { console.warn('newsdata geo fail:', e.message); return []; }
 }
 
 async function fetchGeoRSS(src){
@@ -1121,14 +1122,14 @@ function renderHighImpact(){
 
 // ── NEWS ──
 // ── NEWS via NewsAPI.org ──
-var NEWS_API_KEY = localStorage.getItem('dfxai_newsapi') || '';
+var NEWS_DATA_KEY = localStorage.getItem('dfxai_newsdata') || '';
 var newsLastFetch = 0;
 var newsCached = [];
 
 // Simpan key NewsAPI (dipanggil dari UI jika user mau set key)
-window.setNewsAPIKey = function(key) {
-  NEWS_API_KEY = (key||'').trim();
-  localStorage.setItem('dfxai_newsapi', NEWS_API_KEY);
+window.setNewsDataKey = function(key) {
+  NEWS_DATA_KEY = (key||'').trim();
+  localStorage.setItem('dfxai_newsdata', NEWS_DATA_KEY);
 };
 
 function newsTimeAgo(ds) {
@@ -1171,46 +1172,33 @@ function renderNewsFallback() {
 
 async function fetchNews(force) {
   var now = Date.now();
-  // Cache 15 menit
   if(!force && newsCached.length > 0 && now - newsLastFetch < 900000) {
     renderNewsPanel(newsCached); return;
   }
 
-  var key = NEWS_API_KEY || localStorage.getItem('dfxai_newsapi') || '';
+  var key = NEWS_DATA_KEY || localStorage.getItem('dfxai_newsdata') || '';
   if(!key) { renderNewsFallback(); return; }
-
-  // Query: gold + forex + macro news
-  var queries = [
-    'gold+XAU+bullion',
-    'Federal+Reserve+rate',
-    'dollar+DXY+forex',
-  ];
 
   try {
     var allArticles = [];
-    // Ambil dari 2 query paralel (hemat request - max 100/hari)
-    var results = await Promise.allSettled(queries.slice(0,2).map(function(q) {
-      var url = 'https://newsapi.org/v2/everything?q='+q+
-        '&language=en&sortBy=publishedAt&pageSize=5'+
-        '&apiKey='+key;
-      return fetch(url, {signal: AbortSignal.timeout(8000)})
-        .then(function(r) { return r.json(); });
-    }));
+    // newsdata.io — support CORS browser, 1 request hemat quota
+    var url = 'https://newsdata.io/api/1/news?apikey='+key+
+      '&q=gold+XAU+Federal+Reserve+dollar+forex&language=en&size=10';
+    var r = await fetch(url, {signal: AbortSignal.timeout(8000)});
+    var data = await r.json();
 
-    results.forEach(function(r) {
-      if(r.status === 'fulfilled' && r.value && r.value.articles) {
-        r.value.articles.forEach(function(a) {
-          if(a.title && a.title !== '[Removed]') {
-            allArticles.push({
-              t: a.title.replace(/\s*-\s*[\w\s]+$/, '').trim(), // hapus nama sumber di akhir judul
-              s: (a.source && a.source.name) ? a.source.name.toUpperCase().substring(0,12) : 'NEWS',
-              d: a.description ? a.description.substring(0, 120) : '',
-              date: a.publishedAt || ''
-            });
-          }
-        });
-      }
-    });
+    if(data.status === 'success' && data.results && data.results.length) {
+      data.results.forEach(function(a) {
+        if(a.title) {
+          allArticles.push({
+            t: a.title,
+            s: a.source_id ? a.source_id.toUpperCase().substring(0,12) : 'NEWS',
+            d: a.description ? a.description.substring(0,120) : '',
+            date: a.pubDate || ''
+          });
+        }
+      });
+    }
 
     if(allArticles.length === 0) throw new Error('No articles');
 
@@ -1218,9 +1206,9 @@ async function fetchNews(force) {
     allArticles.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
     var seen = [];
     allArticles = allArticles.filter(function(a) {
-      var key2 = a.t.substring(0,30).toLowerCase();
-      if(seen.indexOf(key2) !== -1) return false;
-      seen.push(key2); return true;
+      var k2 = a.t.substring(0,30).toLowerCase();
+      if(seen.indexOf(k2) !== -1) return false;
+      seen.push(k2); return true;
     }).slice(0, 8);
 
     newsCached = allArticles;
@@ -1344,11 +1332,15 @@ function renderGoldETF() {
 
 // ── INIT ──
 async function init() {
-  // Set NewsAPI key jika belum ada di localStorage
-  if(!localStorage.getItem('dfxai_newsapi')) {
-    localStorage.setItem('dfxai_newsapi', 'efea666c7f474dc68679027c106d58d5');
+  // Load newsdata key dari localStorage
+  NEWS_DATA_KEY = localStorage.getItem('dfxai_newsdata') || '';
+  // Isi input field jika key sudah ada
+  if(NEWS_DATA_KEY) {
+    var ndInput = document.getElementById('newsdataKeyInput');
+    if(ndInput) ndInput.placeholder = 'Key sudah tersimpan ✓';
+    var ndStatus = document.getElementById('ndKeyStatus');
+    if(ndStatus) ndStatus.textContent = '✓ Key active';
   }
-  NEWS_API_KEY = localStorage.getItem('dfxai_newsapi');
   updateMarketBanner();
   setInterval(updateMarketBanner, 60000);
   renderSignalHistory();
