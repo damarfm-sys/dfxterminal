@@ -1,0 +1,9 @@
+{
+  "version": 2,
+  "rewrites": [
+    { "source": "/fetch", "destination": "/api/fetch" },
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/((?!api|fetch).*\\.[a-zA-Z0-9]+)$", "destination": "/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

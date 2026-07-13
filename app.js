@@ -14,7 +14,13 @@ var charts = {};
 
 // ── PROXIES ──
 var PROXIES = [
-  function(u){ return 'https://corsproxy.io/?'+encodeURIComponent(u); },
+  function(u){ 
+    // Use localhost proxy during local development, use native Vercel serverless proxy in production
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      return 'http://localhost:8080/fetch?url='+encodeURIComponent(u); 
+    }
+    return '/fetch?url='+encodeURIComponent(u); 
+  },
   function(u){ return 'https://api.allorigins.win/raw?url='+encodeURIComponent(u); },
   function(u){ return u; }
 ];
@@ -115,7 +121,8 @@ async function yahooQuote(sym) {
 async function fetchQuotes() {
   var symbols = {
     'XAU/USD':'GC=F','XAG/USD':'SI=F','EUR/USD':'EURUSD=X',
-    'GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','US10Y':'^TNX'
+    'GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','US10Y':'^TNX',
+    'DXY':'DX-Y.NYB'
   };
   var tickerMap = {
     'XAU/USD':{p:'t-xau',c:'t-xau-chg',dec:2},
@@ -123,7 +130,8 @@ async function fetchQuotes() {
     'EUR/USD':{p:'t-eur',c:'t-eur-chg',dec:4},
     'GBP/USD':{p:'t-gbp',c:'t-gbp-chg',dec:4},
     'USD/JPY':{p:'t-jpy',c:'t-jpy-chg',dec:2},
-    'US10Y':{p:'t-us10',c:'t-us10-chg',dec:3}
+    'US10Y':{p:'t-us10',c:'t-us10-chg',dec:3},
+    'DXY':{p:'t-dxy',c:'t-dxy-chg',dec:3}
   };
 
   try {
@@ -131,6 +139,27 @@ async function fetchQuotes() {
     await Promise.allSettled(Object.entries(symbols).map(async function(kv) {
       try { results[kv[0]] = await yahooQuote(kv[1]); } catch(e) { console.warn(kv[0],e.message); }
     }));
+
+    // If DXY wasn't returned by Yahoo, try Stooq CSV as fallback (via first proxy)
+    if (!results['DXY']) {
+      try {
+        var stooqUrl = 'https://stooq.com/q/l/?s=%5Edxy&f=sd2t2ohlcvn&h&e=csv';
+        var r = await fetch(PROXIES[0](stooqUrl), {signal: AbortSignal.timeout(5000)});
+        if (r.ok) {
+          var txt = await r.text();
+          if (txt && txt.indexOf('\n') !== -1) {
+            var lines = txt.trim().split('\n');
+            var last = lines[lines.length-1].split(',').map(function(p){return p.replace(/"/g,'').trim();});
+            var nums = last.slice(2).map(function(p){var v=parseFloat(p);return isNaN(v)?null:v;}).filter(Boolean);
+            var close = nums.length?nums[nums.length-1]:null;
+            if (close) {
+              results['DXY'] = { price: close, open: nums[0]||close, high: nums[1]||close, low: nums[2]||close, prev: close, change: 0, pct: 0 };
+              console.log('fetchQuotes: DXY from Stooq', results['DXY']);
+            }
+          }
+        }
+      } catch(e) { console.warn('stooq dxy fail', e && e.message); }
+    }
 
     var anySuccess = false;
     Object.entries(tickerMap).forEach(function(kv) {
@@ -144,7 +173,8 @@ async function fetchQuotes() {
     });
 
     if (results['XAU/USD']) { state.xau=results['XAU/USD']; updateXAU(); }
-    if (results['EUR/USD']) { state.dxy=results['EUR/USD']; updateDXY(); }
+    if (results['DXY']) { state.dxy=results['DXY']; updateDXY(); }
+    else if (results['EUR/USD']) { state.dxy=results['EUR/USD']; updateDXY(); }
     fetchBTCPrice();
 
     if (anySuccess) {
@@ -675,6 +705,7 @@ window.switchPage = function(page, el) {
   if(page==='etf') { if(typeof renderGoldETF==='function') renderGoldETF(); }
   if(page==='charts') { if(typeof loadBTCChart==='function') loadBTCChart(); }
   if(page==='ai') renderAIPanel();
+  if(page==='screener') renderScreenerPanel();
 };
 
 window.changeInterval = function(interval, el) {
@@ -699,6 +730,102 @@ window.setCalFilter = function(type, el) {
 };
 
 // ── GROQ AI ──
+  // ── MARKET SCREENER (Forex / Metal / Crypto) ──
+  window.currentScreener = 'forex';
+  window.renderScreenerPanel = function(){
+    var res = document.getElementById('screenerResult'); if(!res) return;
+    res.innerHTML = '<div style="padding:20px;color:var(--t3);text-align:center">Pilih kategori: Forex, Metal, atau Crypto</div>';
+  };
+
+  window.loadScreener = async function(cat, el){
+    cat = cat || window.currentScreener || 'forex'; window.currentScreener = cat;
+    var res = document.getElementById('screenerResult'); if(!res) return;
+    if(el){ document.querySelectorAll('#page-screener .tab').forEach(function(b){b.classList.remove('active');}); el.classList.add('active'); }
+    res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">Loading '+cat+'…</div>';
+    try {
+      if(cat==='crypto'){
+        // Use CoinGecko markets endpoint to get price, 24h change, high/low, volume and sparkline
+        var ids = 'bitcoin,ethereum,ripple,litecoin,cardano,solana,dogecoin,polkadot,binancecoin,tron,chainlink';
+        var url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='+ids+'&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=24h';
+        var r = await fetch(url, {signal: AbortSignal.timeout(10000)});
+        var arr = await r.json();
+        var rows = arr.map(function(item){
+          var series = (item.sparkline_in_7d && item.sparkline_in_7d.price) ? item.sparkline_in_7d.price.slice(-24) : null;
+          return {symbol:(item.symbol||item.id).toUpperCase(), price:item.current_price||null, pct:item.price_change_percentage_24h||null, high:item.high_24h||null, low:item.low_24h||null, vol:item.total_volume||null, series:series};
+        });
+        window.screenerData = rows;
+        renderScreenerTable(rows,'crypto');
+        return;
+      }
+
+      var map = {};
+      if (cat === 'metal') {
+        map = {
+          'XAU/USD':'GC=F',
+          'XAG/USD':'SI=F',
+          'XPT/USD':'PL=F',
+          'Palladium/USD':'PA=F'
+        };
+      } else {
+        map = {
+          'EUR/USD':'EURUSD=X','GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','AUD/USD':'AUDUSD=X',
+          'NZD/USD':'NZDUSD=X','USD/CAD':'CAD=X','USD/CHF':'CHF=X','EUR/GBP':'EURGBP=X',
+          'EUR/JPY':'EURJPY=X','GBP/JPY':'GBPJPY=X'
+        };
+      }
+      var entries = Object.entries(map);
+      var results = {};
+      await Promise.allSettled(entries.map(async function(kv){ try{ results[kv[0]] = await yahooQuote(kv[1]); }catch(e){ results[kv[0]] = null; } }));
+      var rows = await Promise.all(entries.map(async function(kv){ var label=kv[0]; var q=results[label]; if(!q||!q.price) return {symbol:label,price:null,pct:null,high:null,low:null,vol:null,series:null};
+        // try to fetch series for sparkline (best-effort)
+        var series = [];
+        try { series = await fetchSeries(label==='DXY'?'DXY':label, '1h', 24); } catch(e) { series = []; }
+        return {symbol:label, price:q&&q.price?q.price:null, pct:q&&q.pct?q.pct:null, high:q&&q.high?q.high:null, low:q&&q.low?q.low:null, vol:null, series:series}; }));
+      window.screenerData = rows;
+      renderScreenerTable(rows, cat==='metal'?'metal':'forex');
+    } catch(e){ res.innerHTML = '<div style="padding:20px;color:var(--red);text-align:center">Error: '+(e.message||e)+'</div>'; }
+  };
+
+  window.topMoversOnly = false;
+  window.toggleTopMovers = function(){ window.topMoversOnly = !window.topMoversOnly; var b=document.getElementById('screenerTopBtn'); if(b){ if(window.topMoversOnly) b.classList.add('top-movers-on'); else b.classList.remove('top-movers-on'); } if(window.screenerData) renderScreenerTable(window.screenerData); };
+
+  window.currentSort = {col:null,dir:1};
+  function renderScreenerTable(rows, type){
+    var res = document.getElementById('screenerResult'); if(!res) return;
+    var data = rows.slice();
+    if(window.topMoversOnly){ data = data.filter(function(r){ return r && r.pct; }).sort(function(a,b){ return Math.abs(b.pct)-Math.abs(a.pct); }).slice(0,10); }
+    if(window.currentSort && window.currentSort.col){ data.sort(function(a,b){ var ca=a[window.currentSort.col], cb=b[window.currentSort.col]; if(ca==null) return 1; if(cb==null) return -1; return (ca>cb?1:ca<cb?-1:0)*window.currentSort.dir; }); }
+    var header = '<div class="screener-card"><div class="screener-header">'+(type==='crypto'?'Crypto Prices':type==='metal'?'Metal Overview':'Forex Overview')+'<div class="screener-meta">Pairs: '+(window.screenerData?window.screenerData.length:0)+'</div></div>'+
+      '<table class="data-table" style="margin-top:8px"><thead><tr>'+
+      '<th onclick="window.sortScreener(\'symbol\')">Symbol</th><th onclick="window.sortScreener(\'price\')">Price</th><th onclick="window.sortScreener(\'pct\')">24H</th><th>High</th><th>Low</th><th>Vol</th><th>Spark</th></tr></thead><tbody>';
+    var rowsHtml = data.map(function(r){ if(!r) return ''; var price = r.price?fmt(r.price):'—'; var pct = screenerChangeBadge(r.pct); var high = r.high?fmt(r.high):'—'; var low = r.low?fmt(r.low):'—'; var vol = r.vol?Number(r.vol).toLocaleString():'—'; var canvas = r.series && r.series.length?'<canvas class="spark-canvas" data-series-index="'+Math.random().toString(36).substr(2,6)+'"></canvas>':'<div style="color:var(--t3)">—</div>';
+      return '<tr><td style="font-weight:700;color:var(--t1)">'+r.symbol+'</td><td class="price">'+price+'</td><td>'+pct+'</td><td>'+high+'</td><td>'+low+'</td><td class="vol">'+vol+'</td><td>'+canvas+'</td></tr>'; }).join('');
+    res.innerHTML = header + rowsHtml + '</tbody></table></div>';
+    // draw sparklines
+    setTimeout(function(){ var canvases = res.querySelectorAll('.spark-canvas'); canvases.forEach(function(c){ var idx = c.getAttribute('data-series-index'); var parentRow = c.closest('tr'); var sym = parentRow.querySelector('td').textContent; var item = (window.screenerData||[]).find(function(x){ return x.symbol===sym; }); if(item && item.series && item.series.length){ var dataArr = item.series.map(function(v){ return v.c || v.close || v[4] || 0; }); drawSparkline(c, dataArr); } }); }, 80);
+  }
+
+  window.sortScreener = function(col){ if(window.currentSort.col===col) window.currentSort.dir *= -1; else { window.currentSort.col = col; window.currentSort.dir = 1; } if(window.screenerData) renderScreenerTable(window.screenerData); };
+
+  function drawSparkline(canvas, data){ try{ var ctx = canvas.getContext('2d'); var w = canvas.width = canvas.clientWidth; var h = canvas.height = canvas.clientHeight; ctx.clearRect(0,0,w,h); if(!data||!data.length) return; var max=Math.max.apply(null,data); var min=Math.min.apply(null,data); var range = max-min||1; ctx.beginPath(); data.forEach(function(v,i){ var x = i/(data.length-1)*(w-2)+1; var y = h-2 - ((v-min)/range)*(h-4)+1; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }); ctx.strokeStyle = 'rgba(240,192,64,0.9)'; ctx.lineWidth=1.2; ctx.stroke(); }catch(e){console.warn('sparkline err',e);} }
+  function drawSparkline(canvas, data){ try{ var ctx = canvas.getContext('2d'); var w = canvas.width = canvas.clientWidth; var h = canvas.height = canvas.clientHeight; ctx.clearRect(0,0,w,h); if(!data||!data.length) return; var max=Math.max.apply(null,data); var min=Math.min.apply(null,data); var range = max-min||1; var pts = data.map(function(v,i){ return {x: i/(data.length-1)*(w-2)+1, y: h-2 - ((v-min)/range)*(h-4)+1, v: v}; });
+      // gradient fill
+      var grad = ctx.createLinearGradient(0,0,0,h); grad.addColorStop(0,'rgba(240,192,64,0.18)'); grad.addColorStop(1,'rgba(240,192,64,0)');
+      ctx.beginPath(); pts.forEach(function(p,i){ if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+      ctx.lineWidth=1.4; var last = pts[pts.length-1].v; var first = pts[0].v; var color = last>=first ? 'rgba(34,217,138,0.95)' : 'rgba(255,77,109,0.95)'; ctx.strokeStyle = color; ctx.stroke();
+      // fill area
+      ctx.lineTo(w-1,h); ctx.lineTo(1,h); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+      // small dot at last
+      ctx.beginPath(); ctx.arc(pts[pts.length-1].x, pts[pts.length-1].y, 2, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
+    }catch(e){console.warn('sparkline err',e);} }
+
+function screenerChangeBadge(v){
+  if (v==null || v===undefined || isNaN(parseFloat(v))) return '<span style="color:var(--t3)">—</span>';
+  var n = parseFloat(v);
+  var cls = n>=0 ? 'up' : 'down';
+  return '<span class="'+cls+'" style="font-weight:700">'+(n>=0?'+':'')+n.toFixed(2)+'%</span>';
+}
+
 async function groqChat(prompt) {
   var key = GROQ_KEY || localStorage.getItem('dfxai_groq') || '';
   if (!key) throw new Error('Groq API key belum diset. Masuk ke tab AI Analysis dulu.');
@@ -746,15 +873,23 @@ window.renderAIPanel = async function() {
   }
   GROQ_KEY = key;
   if (panel) panel.innerHTML='<div style="padding:20px;color:var(--gold);text-align:center">⟳ Analyzing market conditions...</div>';
-  var x=state.xau, d=state.dxy, s=state.xauSeries;
-  var closes=s.map(function(v){return v.c;});
-  var ema20=calcEMA(closes,20), ema50=calcEMA(closes,50), rsi=calcRSI(closes,14), atr=calcATR(s,14);
-  var prompt='You are a professional XAUUSD (Gold) trader and analyst. Analyze the following real-time market data and provide a concise trading analysis in 5 bullet points:\n\n'+
-    'XAUUSD Price: '+fmt(x.price)+'\nDaily Change: '+fmtPct(x.pct)+'\nOpen: '+fmt(x.open)+' | High: '+fmt(x.high)+' | Low: '+fmt(x.low)+'\n'+
-    'DXY: '+fmt(d.price,2)+' ('+fmtPct(d.pct)+')\n'+
-    'RSI(14): '+(rsi?rsi.toFixed(1):'N/A')+'\nEMA20: '+fmt(ema20)+' | EMA50: '+fmt(ema50)+'\nATR(14): '+fmt(atr,1)+'\n'+
-    'Price vs EMA20: '+(ema20&&x.price>ema20?'ABOVE (bullish)':'BELOW (bearish)')+'\n'+
-    'Price vs EMA50: '+(ema50&&x.price>ema50?'ABOVE (bullish)':'BELOW (bearish)')+'\n\n'+
+
+  // Defensive defaults: state may be empty during initial load
+  var x = state.xau || {};
+  var d = state.dxy || {};
+  var s = Array.isArray(state.xauSeries) ? state.xauSeries : [];
+  var closes = s.length ? s.map(function(v){ return v.c; }) : [];
+  var ema20 = closes.length ? calcEMA(closes,20) : null;
+  var ema50 = closes.length ? calcEMA(closes,50) : null;
+  var rsi = closes.length ? calcRSI(closes,14) : null;
+  var atr = s.length ? calcATR(s,14) : null;
+
+  var prompt = 'You are a professional XAUUSD (Gold) trader and analyst. Analyze the following real-time market data and provide a concise trading analysis in 5 bullet points:\n\n' +
+    'XAUUSD Price: ' + (x.price ? fmt(x.price) : 'N/A') + '\nDaily Change: ' + (typeof x.pct !== 'undefined' ? fmtPct(x.pct) : 'N/A') + '\nOpen: ' + (x.open ? fmt(x.open) : 'N/A') + ' | High: ' + (x.high ? fmt(x.high) : 'N/A') + ' | Low: ' + (x.low ? fmt(x.low) : 'N/A') + '\n' +
+    'DXY: ' + (d.price ? fmt(d.price,2) : 'N/A') + ' (' + (typeof d.pct !== 'undefined' ? fmtPct(d.pct) : 'N/A') + ')\n' +
+    'RSI(14): ' + (rsi ? rsi.toFixed(1) : 'N/A') + '\nEMA20: ' + (ema20 ? fmt(ema20) : 'N/A') + ' | EMA50: ' + (ema50 ? fmt(ema50) : 'N/A') + '\nATR(14): ' + (atr ? fmt(atr,1) : 'N/A') + '\n' +
+    'Price vs EMA20: ' + (ema20 && x.price ? (x.price>ema20?'ABOVE (bullish)':'BELOW (bearish)') : 'N/A') + '\n' +
+    'Price vs EMA50: ' + (ema50 && x.price ? (x.price>ema50?'ABOVE (bullish)':'BELOW (bearish)') : 'N/A') + '\n\n' +
     'Provide: 1) Market Bias (Bullish/Bearish/Neutral) 2) Key levels to watch 3) Entry suggestion 4) Risk factors 5) Short-term outlook. Be concise and direct.';
   try {
     var txt = await groqChat(prompt);
@@ -1108,34 +1243,101 @@ function renderNewsPanel(items) {
   }).join('');
 }
 
-function renderNewsFallback() {
+function renderNewsFallbackStatic() {
   renderNewsPanel([
     {t:'Fed officials signal patience on rate cuts', s:'REUTERS', d:'Multiple Fed speakers reiterate data-dependent approach.', date:''},
     {t:'Gold ETF inflows surge to 3-month high', s:'BLOOMBERG', d:'Safe-haven demand accelerates amid geopolitical risk.', date:''}
   ]);
 }
 
+async function renderNewsFallback() {
+  console.log('[news] Fetching live financial RSS as dynamic fallback...');
+  var rssFeeds = [
+    {url:'https://feeds.bbci.co.uk/news/business/rss.xml', label:'BBC BIZ'},
+    {url:'https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml', label:'NYT ECON'},
+    {url:'https://feeds.skynews.com/feeds/rss/world.xml', label:'SKY NEWS'}
+  ];
+  try {
+    var all = [];
+    var results = await Promise.allSettled(rssFeeds.map(fetchGeoRSS));
+    results.forEach(function(r) {
+      if(r.status === 'fulfilled' && r.value) {
+        r.value.forEach(function(item) {
+          all.push({
+            t: item.title,
+            s: item.source || 'RSS',
+            d: '',
+            date: item.date || ''
+          });
+        });
+      }
+    });
+    
+    if(all.length > 0) {
+      all.sort(function(a,b){ return new Date(b.date || 0) - new Date(a.date || 0); });
+      var seen = [];
+      all = all.filter(function(a) {
+        var k2 = a.t.substring(0,35).toLowerCase().replace(/\s+/g,'');
+        if(seen.indexOf(k2) !== -1) return false;
+        seen.push(k2); return true;
+      }).slice(0, 8);
+      
+      console.log('[news] loaded dynamic RSS fallback items:', all.length);
+      renderNewsPanel(all);
+      newsCached = all;
+      newsLastFetch = Date.now();
+    } else {
+      console.warn('[news] dynamic RSS empty, using static fallback');
+      renderNewsFallbackStatic();
+    }
+  } catch(e) {
+    console.error('[news] failed to load dynamic RSS fallback:', e);
+    renderNewsFallbackStatic();
+  }
+}
+
 async function fetchNews(force) {
   var now = Date.now();
   if(!force && newsCached.length > 0 && now - newsLastFetch < 900000) { renderNewsPanel(newsCached); return; }
   var key = NEWS_DATA_KEY || localStorage.getItem('dfxai_newsdata') || '';
-  if(!key) { renderNewsFallback(); return; }
+  var panelDebug = document.getElementById('newsPreview');
+  if(!key) { 
+    if(panelDebug) panelDebug.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3)">News key not set — fetching live RSS...</div>'; 
+    await renderNewsFallback(); 
+    return; 
+  }
+  if(panelDebug) panelDebug.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3)">⟳ Fetching news...</div>';
   try {
     var allArticles = [];
-    var url = 'https://newsdata.io/api/1/news?apikey='+key+'&q=gold+XAU+Federal+Reserve+OR+dollar+DXY+OR+interest+rate+inflation&language=en&size=10&prioritydomain=top';
-    var r = await fetch(url, {signal: AbortSignal.timeout(8000)});
+    var q = 'gold+OR+XAU+OR+Federal+Reserve+OR+dollar+OR+DXY+OR+interest+OR+rate+OR+inflation';
+    var url = 'https://newsdata.io/api/1/news?apikey='+key+'&q='+q+'&language=en&size=20&prioritydomain=top';
+    console.log('[news] fetching:', url);
+    var r = await fetch(url, {signal: AbortSignal.timeout(10000)});
+    console.log('[news] response status:', r.status);
     var data = await r.json();
+    console.log('[news] response:', data && data.status ? data.status : data);
     if(data.status === 'success' && data.results && data.results.length) {
       data.results.filter(function(a){ return a.title && a.title.length > 10 && isCredibleSource(a.source_id) && (Date.now() - new Date(a.pubDate) < 259200000); })
         .forEach(function(a) { allArticles.push({ t: a.title, s: a.source_id ? a.source_id.toUpperCase().substring(0,12) : 'NEWS', d: a.description ? a.description.substring(0,120) : '', date: a.pubDate || '' }); });
     }
-    if(allArticles.length === 0) throw new Error('No articles');
+    if(allArticles.length === 0) {
+      console.warn('[news] no articles from NewsData, switching to dynamic RSS fallback');
+      if(panelDebug) panelDebug.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3)">Empty NewsData response — fetching live RSS...</div>';
+      await renderNewsFallback();
+      return;
+    }
     allArticles.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
     var seen = [];
     allArticles = allArticles.filter(function(a) { var k2 = a.t.substring(0,30).toLowerCase(); if(seen.indexOf(k2) !== -1) return false; seen.push(k2); return true; }).slice(0, 8);
     newsCached = allArticles; newsLastFetch = now; renderNewsPanel(allArticles);
   } catch(e) {
-    if(newsCached.length > 0) renderNewsPanel(newsCached); else renderNewsFallback();
+    console.warn('[news] fetch error', e && e.message || e);
+    if(newsCached.length > 0) {
+      renderNewsPanel(newsCached);
+    } else {
+      if(panelDebug) panelDebug.innerHTML='<div style="padding:20px;text-align:center;color:var(--red)">Error fetching NewsData: '+(e.message||e)+' — fetching live RSS...</div>';
+      await renderNewsFallback();
+    }
   }
 }
 

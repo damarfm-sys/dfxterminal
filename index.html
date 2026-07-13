@@ -151,6 +151,7 @@
   <div class="tab" onclick="window.switchPage('livetv',this)">📺 Live TV</div>
   <div class="tab" onclick="window.switchPage('etf',this)">◈ ETF FLOW</div>
   <div class="tab" onclick="window.switchPage('ai',this)">🤖 AI Analysis</div>
+  <div class="tab" onclick="window.switchPage('screener',this)">🔎 Screener</div>
 </div>
 
 <!-- MARKET BANNER -->
@@ -345,6 +346,25 @@
   </div>
 
   <!-- Existing XAU indicators (preserved) -->
+</div>
+
+<!-- ═══ SCREENER ═══ -->
+<div id="page-screener" class="page">
+  <div class="panel">
+    <div class="panel-header"><div class="panel-title"><span class="accent">🔎</span> MARKET SCREENER</div></div>
+    <div style="padding:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <div style="display:flex;gap:6px">
+        <button class="tab" style="padding:6px 10px" onclick="window.loadScreener('forex', this)">Forex</button>
+        <button class="tab" style="padding:6px 10px" onclick="window.loadScreener('metal', this)">Metal</button>
+        <button class="tab" style="padding:6px 10px" onclick="window.loadScreener('crypto', this)">Crypto</button>
+      </div>
+      <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+        <button id="screenerTopBtn" onclick="window.toggleTopMovers()" style="padding:6px 10px">★ Top movers</button>
+        <button onclick="window.loadScreener(window.currentScreener||'forex', this)" style="padding:8px 12px">↺ Refresh</button>
+      </div>
+    </div>
+    <div id="screenerResult" style="padding:12px;min-height:200px;background:var(--bg-card);border-top:1px solid var(--border);"></div>
+  </div>
 </div>
 
 <!-- ═══ SIGNALS ═══ -->

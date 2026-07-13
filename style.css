@@ -129,6 +129,25 @@ body{background:var(--bg);color:var(--t1);font-family:'JetBrains Mono',monospace
 .data-table td{padding:8px 10px;border-bottom:1px solid rgba(26,37,64,0.4);font-size:11px;}
 .data-table tr:hover td{background:var(--bg-hover);}
 
+/* Screener specific */
+.screener-card{background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:6px;padding:12px;border:1px solid rgba(26,37,64,0.6)}
+.screener-header{display:flex;align-items:center;justify-content:space-between;font-size:12px;font-weight:700;color:var(--gold);margin-bottom:8px}
+.screener-meta{font-size:11px;color:var(--t3)}
+.data-table thead tr th{background:transparent}
+.data-table tbody tr td:first-child{width:140px}
+.data-table td .up{color:var(--green)}
+.data-table td .down{color:var(--red)}
+
+/* sparkline */
+.spark-canvas{width:120px;height:28px}
+.screener-controls{display:flex;gap:8px;align-items:center}
+.top-movers-on{background:linear-gradient(90deg,rgba(34,217,138,0.12),rgba(240,192,64,0.06));border-color:rgba(34,217,138,0.25);}
+/* row subtle elevation */
+.data-table tbody tr{transition:transform 0.12s,box-shadow 0.12s;background:transparent}
+.data-table tbody tr:hover{transform:translateY(-3px);box-shadow:0 8px 18px rgba(2,6,23,0.6)}
+.data-table td.price{font-weight:700;color:var(--gold)}
+.data-table td.vol{color:var(--t3);font-size:10px}
+
 /* NEWS */
 .news-item{padding:10px 12px;border-bottom:1px solid rgba(26,37,64,0.5);cursor:pointer;transition:background 0.15s;}
 .news-item:hover{background:var(--bg-hover);}
