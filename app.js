@@ -747,8 +747,19 @@ window.setCalFilter = function(type, el) {
         // Use CoinGecko markets endpoint to get price, 24h change, high/low, volume and sparkline
         var ids = 'bitcoin,ethereum,ripple,litecoin,cardano,solana,dogecoin,polkadot,binancecoin,tron,chainlink';
         var url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='+ids+'&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=24h';
-        var r = await fetch(url, {signal: AbortSignal.timeout(10000)});
+        console.log('[screener] fetching crypto:', url);
+        var r = await fetch(url, {signal: AbortSignal.timeout(15000)}); // Increased timeout to 15s
+        if (!r.ok) {
+          console.error('[screener] CoinGecko API response not OK:', r.status, r.statusText);
+          res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--red)">Error fetching crypto data: ' + r.statusText + '</div>';
+          return;
+        }
         var arr = await r.json();
+        if (!arr || arr.length === 0) {
+          console.warn('[screener] CoinGecko API returned empty data');
+          res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">No crypto data available at the moment.</div>';
+          return;
+        }
         var rows = arr.map(function(item){
           var series = (item.sparkline_in_7d && item.sparkline_in_7d.price) ? item.sparkline_in_7d.price.slice(-24) : null;
           return {symbol:(item.symbol||item.id).toUpperCase(), price:item.current_price||null, pct:item.price_change_percentage_24h||null, high:item.high_24h||null, low:item.low_24h||null, vol:item.total_volume||null, series:series};
