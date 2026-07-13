@@ -744,28 +744,64 @@ window.setCalFilter = function(type, el) {
     res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">Loading '+cat+'…</div>';
     try {
       if(cat==='crypto'){
-        // Use CoinGecko markets endpoint to get price, 24h change, high/low, volume and sparkline
+        // Use CoinGecko markets endpoint first; if rate-limited or empty, fallback to Binance public API
         var ids = 'bitcoin,ethereum,ripple,litecoin,cardano,solana,dogecoin,polkadot,binancecoin,tron,chainlink';
         var url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='+ids+'&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=24h';
-        console.log('[screener] fetching crypto:', url);
-        var r = await fetch(url, {signal: AbortSignal.timeout(15000)}); // Increased timeout to 15s
-        if (!r.ok) {
-          console.error('[screener] CoinGecko API response not OK:', r.status, r.statusText);
-          res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--red)">Error fetching crypto data: ' + r.statusText + '</div>';
+        console.log('[screener] fetching crypto (CoinGecko):', url);
+        try {
+          var r = await fetch(url, {signal: AbortSignal.timeout(15000)}); // 15s
+          if (!r.ok) throw new Error('CoinGecko '+r.status+' '+r.statusText);
+          var arr = await r.json();
+          if (arr && arr.length > 0) {
+            var rows = arr.map(function(item){
+              var series = (item.sparkline_in_7d && item.sparkline_in_7d.price) ? item.sparkline_in_7d.price.slice(-24) : null;
+              return {symbol:(item.symbol||item.id).toUpperCase(), price:item.current_price||null, pct:item.price_change_percentage_24h||null, high:item.high_24h||null, low:item.low_24h||null, vol:item.total_volume||null, series:series};
+            });
+            window.screenerData = rows;
+            renderScreenerTable(rows,'crypto');
+            return;
+          }
+          console.warn('[screener] CoinGecko returned no data, falling back to Binance');
+        } catch(e) {
+          console.warn('[screener] CoinGecko fetch failed:', e && e.message || e);
+        }
+
+        // Binance fallback (public endpoints)
+        async function fetchBinanceMarkets(idsStr){
+          var map = { bitcoin:'BTCUSDT', ethereum:'ETHUSDT', ripple:'XRPUSDT', litecoin:'LTCUSDT', cardano:'ADAUSDT', solana:'SOLUSDT', dogecoin:'DOGEUSDT', polkadot:'DOTUSDT', binancecoin:'BNBUSDT', tron:'TRXUSDT', chainlink:'LINKUSDT' };
+          var wanted = idsStr.split(',').map(function(s){ return s.trim(); });
+          try {
+            var r2 = await fetch('https://api.binance.com/api/v3/ticker/24hr', {signal: AbortSignal.timeout(10000)});
+            if(!r2.ok) throw new Error('Binance ticker fetch failed '+r2.status);
+            var all = await r2.json();
+            var rows = wanted.map(function(id){
+              var sym = map[id] || (id.toUpperCase()+'USDT');
+              var item = all.find(function(t){ return t.symbol === sym; });
+              if(item){
+                return { symbol: (sym.replace('USDT','/USD')), price: parseFloat(item.lastPrice)||null, pct: parseFloat(item.priceChangePercent)||null, high: parseFloat(item.highPrice)||null, low: parseFloat(item.lowPrice)||null, vol: parseFloat(item.volume)||null, series: null };
+              }
+              return { symbol: (sym.replace('USDT','/USD')), price: null, pct: null, high: null, low: null, vol: null, series: null };
+            });
+            // Best-effort: fetch klines for first 3 symbols for sparklines
+            for(var i=0;i<Math.min(3,wanted.length);i++){
+              try{
+                var id = wanted[i]; var s = map[id] || (id.toUpperCase()+'USDT');
+                var kr = await fetch('https://api.binance.com/api/v3/klines?symbol='+s+'&interval=1h&limit=24',{signal:AbortSignal.timeout(8000)});
+                if(kr.ok){ var kdat = await kr.json(); rows[i].series = kdat.map(function(k){return parseFloat(k[4]);}); }
+              }catch(e){}
+            }
+            return rows;
+          } catch(e) { console.warn('[screener] Binance fallback failed', e && e.message || e); return []; }
+        }
+
+        var bRows = await fetchBinanceMarkets(ids);
+        if (bRows && bRows.length) {
+          window.screenerData = bRows;
+          renderScreenerTable(bRows,'crypto');
           return;
         }
-        var arr = await r.json();
-        if (!arr || arr.length === 0) {
-          console.warn('[screener] CoinGecko API returned empty data');
-          res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">No crypto data available at the moment.</div>';
-          return;
-        }
-        var rows = arr.map(function(item){
-          var series = (item.sparkline_in_7d && item.sparkline_in_7d.price) ? item.sparkline_in_7d.price.slice(-24) : null;
-          return {symbol:(item.symbol||item.id).toUpperCase(), price:item.current_price||null, pct:item.price_change_percentage_24h||null, high:item.high_24h||null, low:item.low_24h||null, vol:item.total_volume||null, series:series};
-        });
-        window.screenerData = rows;
-        renderScreenerTable(rows,'crypto');
+
+        res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">Crypto data currently unavailable (rate limit or network). Try again in a few minutes.</div>';
         return;
       }
 
