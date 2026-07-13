@@ -1,5 +1,7 @@
 {
   "version": 2,
+  "buildCommand": "echo 'Build skipped'",
+  "outputDirectory": ".",
   "rewrites": [
     { "source": "/fetch", "destination": "/api/fetch" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
