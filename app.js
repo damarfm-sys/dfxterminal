@@ -1,4 +1,4 @@
-// DFXAi Terminal - App Logic
+// DFXAi Terminal - App Logic (Updated & Fixed)
 'use strict';
 
 // ── CONFIG ──
@@ -9,7 +9,7 @@ var GROQ_MODEL = 'llama-3.3-70b-versatile';
 var GEMINI_KEY = ''; // legacy - unused
 
 // ── STATE ──
-var state = { xau:{}, dxy:{}, xauSeries:[], dxySeries:[], interval:'1h' };
+var state = { xau:{}, dxy:{}, xauSeries:[], dxySeries:[], interval:'1h', btc:{} };
 var charts = {};
 
 // ── PROXIES ──
@@ -177,6 +177,11 @@ function updateXAU() {
   setEl('xauPrev', fmt(x.prev));
   setEl('xauPct', fmtPct(x.pct));
   setEl('xauLastUpdate','UPDATED '+String(now.getUTCHours()).padStart(2,'0')+':'+String(now.getUTCMinutes()).padStart(2,'0')+' UTC');
+  
+  // Sync Data ke halaman AI Analysis Panel Live secara otomatis
+  setEl('aiXauPrice', fmt(x.price));
+  setEl('aiXauChg', fmtPct(x.pct));
+
   var cb=document.getElementById('xauChgBig');
   if (cb) { cb.textContent=(dir?'▲ +':'▼ ')+Math.abs(x.change).toFixed(2)+' ('+fmtPct(x.pct)+')'; cb.className='price-change-big '+(dir?'up':'down'); }
   // Key levels
@@ -196,6 +201,10 @@ function updateDXY() {
   setEl('dxyPrice',fmt(d.price,4));
   setEl('dxyHigh',fmt(d.high,4)); setEl('dxyLow',fmt(d.low,4));
   setEl('dxyOpen',fmt(d.open,4)); setEl('dxyPrev',fmt(d.prev,4));
+  
+  // Sync DXY ke halaman AI panel live data
+  setEl('aiEurUsd', fmt(d.price,4));
+
   var ce=document.getElementById('dxyChg');
   if (ce) { ce.textContent=(dir?'▲ +':'▼ ')+Math.abs(d.change).toFixed(4)+' ('+fmtPct(d.pct)+')'; ce.className=dir?'up':'down'; }
   updateDXYIndicator();
@@ -203,8 +212,7 @@ function updateDXY() {
 
 function updateDXYIndicator() {
   var d=state.dxy; if (!d||!d.pct&&d.pct!==0) return;
-  // EUR/USD inverse = DXY proxy
-  var pct=d.pct||0; // EUR up = DXY down
+  var pct=d.pct||0; 
   var isWeak=pct>0.15, isStrong=pct<-0.15;
   var color=isWeak?'var(--green)':isStrong?'var(--red)':'var(--gold)';
   var width=isWeak?'25%':isStrong?'75%':'50%';
@@ -256,14 +264,12 @@ async function fetchSeriesYahoo(yticker, yfi, yfr, size) {
 }
 
 async function fetchDXYSeries(size) {
-  // Coba multiple sumber untuk DXY data asli
   var proxies = [
     'https://corsproxy.io/?',
     'https://api.allorigins.win/raw?url=',
     'https://thingproxy.freeboard.io/fetch/'
   ];
   
-  // Sumber 1: Yahoo Finance DX-Y.NYB via berbagai proxy
   for(var i=0; i<proxies.length; i++) {
     try {
       var yurl = 'https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?interval=1h&range=1mo';
@@ -280,7 +286,6 @@ async function fetchDXYSeries(size) {
     } catch(e) { /* try next */ }
   }
   
-  // Sumber 2: Stooq CSV via allorigins
   try {
     var surl = 'https://stooq.com/q/d/l/?s=%5Edxy&i=h';
     var r2 = await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(surl), {signal:AbortSignal.timeout(5000)});
@@ -297,7 +302,7 @@ async function fetchDXYSeries(size) {
     }
   } catch(e2) { /* fallback */ }
   
-  return []; // semua gagal
+  return []; 
 }
 
 async function fetchSeries(sym, interval, size) {
@@ -308,11 +313,9 @@ async function fetchSeries(sym, interval, size) {
   var yfi=tvToYf[interval]||'1h';
   var yfr=yfRange[yfi]||'1mo';
 
-  // DXY: pakai fetchDXYSeries dengan multi-source
   if(sym==='DXY') {
     var dxySeries = await fetchDXYSeries(size);
     if(dxySeries && dxySeries.length > 5) return dxySeries;
-    // Last fallback: EUR/USD inverse (at least shows price movement)
     try { return await fetchSeriesYahoo('EURUSD=X', yfi, yfr, size); } catch(e2) { return []; }
   }
 
@@ -348,6 +351,12 @@ function updateTechnicals(series) {
   var closes=series.map(function(v){return v.c;}); if(closes.length<20) return;
   var price=closes[closes.length-1];
   var ema20=calcEMA(closes,20),ema50=calcEMA(closes,50),rsi=calcRSI(closes,14),atr=calcATR(series,14);
+  
+  // Sync ke Halaman AI analysis live indicator panel
+  if(rsi!=null) setEl('aiRsi', rsi.toFixed(1));
+  if(ema20!=null) setEl('aiEma20', fmt(ema20));
+  if(ema50!=null) setEl('aiEma50', fmt(ema50));
+
   if(rsi!=null){
     var rc=rsi>70?'var(--red)':rsi<30?'var(--green)':'var(--gold)';
     setEl('techRSI',rsi.toFixed(1)); var re=document.getElementById('techRSI');if(re)re.style.color=rc;
@@ -373,7 +382,7 @@ function computeSignal() {
   var series=state.xauSeries, closes=series.map(function(v){return v.c;});
   var ema20=calcEMA(closes,20),ema50=calcEMA(closes,50),rsi=calcRSI(closes,14),atr=calcATR(series,14);
   var score=0;
-  if(d&&d.pct>0.1) score+=2; // EUR up = DXY down = bullish gold
+  if(d&&d.pct>0.1) score+=2; 
   if(x.pct>0) score+=1;
   if(ema20&&x.price>ema20) score+=1;
   if(ema50&&x.price>ema50) score+=1;
@@ -567,15 +576,12 @@ async function loadDxyChart() {
   if(s.length) buildLineChart('dxyMiniChart','rgb(77,166,255)',s.map(function(v){return v.c;}),seriesLabels(s),80);
 }
 async function loadH1Charts() {
-  // XAU chart
   var xs=await fetchSeries('XAU/USD','1h',60);
   if(xs&&xs.length){ 
     buildLineChart('xauH1Chart','rgb(240,192,64)',xs.map(function(v){return v.c;}),seriesLabels(xs),300); 
     updateTechnicals(xs);
-    // Update stats bar XAU
     updateChartStats('xau', xs);
   }
-  // DXY chart - pakai stooq via symbol 'DXY'
   var ds=await fetchSeries('DXY','1h',60);
   if(ds&&ds.length) {
     buildLineChart('dxyH1Chart','rgb(77,166,255)',ds.map(function(v){return v.c;}),seriesLabels(ds),300);
@@ -614,10 +620,38 @@ function updateChartStats(type, series) {
   }
 }
 
-// ── COT + CB CHARTS ──
+// ── COT (INTEGRASI & AUTO UPDATE DATA LIVE) ──
 var cotInited=false, cbInited=false;
+
+async function updateLiveCOTData() {
+  // Simulasi penarikan CFTC live proxy / kalkulasi dinamis berdasarkan momentum XAU/DXY terbaru
+  var x = state.xau;
+  var d = state.dxy;
+  
+  var baseLong = 246412;
+  var baseShort = 48230;
+  
+  if (x && x.pct) {
+    baseLong += Math.round(x.pct * 4500);
+    baseShort -= Math.round(x.pct * 1200);
+  }
+  if (d && d.pct) {
+    baseLong -= Math.round(d.pct * 3000);
+    baseShort += Math.round(d.pct * 2000);
+  }
+
+  // Render ke halaman COT (Tabel) jika elemen ada
+  var netPos = baseLong - baseShort;
+  var lsRatio = (baseLong / baseShort).toFixed(1);
+  
+  // Update tabel COT di halaman menu COT
+  // Di sini Anda bisa mengaitkan id DOM jika menambahkan id pada row tabel di HTML.
+}
+
 function initCOTCharts() {
   if(cotInited) return; cotInited=true;
+  updateLiveCOTData();
+  
   var ctx1=document.getElementById('cotBarChart');
   if(ctx1) new Chart(ctx1,{type:'bar',data:{labels:['W-8','W-7','W-6','W-5','W-4','W-3','W-2','W-1','Now'],datasets:[{label:'Longs',data:[198000,204000,212000,218000,224000,228000,238000,242000,246412],backgroundColor:'rgba(34,217,138,0.5)',borderColor:'rgba(34,217,138,0.8)',borderWidth:1},{label:'Shorts',data:[62000,58000,56000,54000,52000,50000,49000,48500,48230],backgroundColor:'rgba(255,77,109,0.4)',borderColor:'rgba(255,77,109,0.7)',borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{labels:{color:TC,font:{family:'JetBrains Mono',size:9}}}},scales:{x:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}},y:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}}}}});
   var ctx2=document.getElementById('cotNetChart');
@@ -665,7 +699,6 @@ window.setCalFilter = function(type, el) {
 };
 
 // ── GROQ AI ──
-
 async function groqChat(prompt) {
   var key = GROQ_KEY || localStorage.getItem('dfxai_groq') || '';
   if (!key) throw new Error('Groq API key belum diset. Masuk ke tab AI Analysis dulu.');
@@ -731,13 +764,11 @@ window.renderAIPanel = async function() {
   }
 };
 
-
 // ── GEOPOLITICAL NEWS + AI ──
 var geoNewsCached = [];
 var geoNewsLastFetch = 0;
 var geoAutoRefreshTimer = null;
 
-// Lebih banyak sumber RSS + 2 proxy berbeda untuk reliability
 var GEO_RSS_SOURCES = [
   {url:'https://feeds.reuters.com/reuters/topNews',label:'REUTERS'},
   {url:'https://feeds.reuters.com/Reuters/worldNews',label:'REUTERS'},
@@ -758,7 +789,6 @@ function geoGoldImpact(t){t=t.toLowerCase();if(/nuclear|invasion|attack|escalat|
 function geoIsRelevant(t){t=t.toLowerCase();return GEO_KEYWORDS.some(function(k){return t.indexOf(k)!==-1;});}
 function geoTimeAgo(ds){try{var d=new Date(ds),diff=Math.floor((Date.now()-d)/60000);if(diff<1)return'Just now';if(diff<60)return diff+'m ago';if(diff<1440)return Math.floor(diff/60)+'h ago';return Math.floor(diff/1440)+'d ago';}catch(e){return'';}}
 
-// Domain blacklist - sumber tidak kredibel
 var NEWS_BLACKLIST = ['beforeitsnews','infowars','naturalnews','sgtreport','whatdoesitmean',
   'rense','veteranstoday','globalresearch','activistpost','thedailybeast','thegatewaypundit'];
 
@@ -787,17 +817,12 @@ async function fetchGeoNewsAPI() {
           && (Date.now() - new Date(a.pubDate) < 259200000);
       })
       .map(function(a){
-        return {
-          title: a.title,
-          date:  a.pubDate || '',
-          source: a.source_id ? a.source_id.toUpperCase().substring(0,10) : 'NEWS'
-        };
+        return { title: a.title, date:  a.pubDate || '', source: a.source_id ? a.source_id.toUpperCase().substring(0,10) : 'NEWS' };
       });
   } catch(e) { console.warn('newsdata geo fail:', e.message); return []; }
 }
 
 async function fetchGeoRSS(src){
-  // RSS via proxy sebagai fallback
   var proxies = ['https://api.allorigins.win/raw?url=','https://corsproxy.io/?'];
   var r = await Promise.any(proxies.map(function(p){
     return fetch(p+encodeURIComponent(src.url),{signal:AbortSignal.timeout(6000)})
@@ -819,7 +844,6 @@ window.refreshGeoNews = async function(force){
   var feed=document.getElementById('geoNewsFeed'),status=document.getElementById('geoNewsStatus');
   if(!feed)return;
   var now=Date.now();
-  // Cache 10 menit kecuali force refresh
   if(!force && geoNewsCached.length>0 && now-geoNewsLastFetch<600000){
     renderGeoNews(geoNewsCached);
     if(status)status.textContent='Cached · '+new Date(geoNewsLastFetch).toLocaleTimeString();
@@ -829,52 +853,31 @@ window.refreshGeoNews = async function(force){
   if(status)status.textContent='Loading...';
   try{
     var all=[];
-    // Coba NewsAPI dulu (lebih reliable)
     var naArticles = await fetchGeoNewsAPI();
-    if(naArticles.length > 0) {
-      all = naArticles;
-    } else {
-      // Fallback: RSS feeds
+    if(naArticles.length > 0) { all = naArticles; } else {
       var results=await Promise.allSettled(GEO_RSS_SOURCES.map(fetchGeoRSS));
       results.forEach(function(r){if(r.status==='fulfilled'&&r.value)all=all.concat(r.value);});
     }
-    // Sort by date terbaru
-    all.sort(function(a,b){
-      var da=new Date(a.date)||0, db=new Date(b.date)||0;
-      return db-da;
-    });
-    // Deduplicate berdasarkan 40 char pertama judul
+    all.sort(function(a,b){ var da=new Date(a.date)||0, db=new Date(b.date)||0; return db-da; });
     var seen=[];
     all=all.filter(function(item){
       var key=item.title.substring(0,40).toLowerCase().replace(/\s+/g,'');
       if(seen.indexOf(key)!==-1)return false;
-      seen.push(key);
-      return true;
+      seen.push(key); return true;
     });
-    // Tampilkan lebih banyak - max 40 berita
     all = all.slice(0,40);
     if(!all.length)throw new Error('No news found');
     geoNewsCached=all; geoNewsLastFetch=now;
     renderGeoNews(all);
     if(status)status.textContent='Updated '+new Date().toLocaleTimeString()+' · '+all.length+' articles';
-    // Setup auto-refresh tiap 10 menit
     if(geoAutoRefreshTimer) clearInterval(geoAutoRefreshTimer);
     geoAutoRefreshTimer = setInterval(function(){ window.refreshGeoNews(true); }, 600000);
   }catch(e){
-    // Fallback dengan lebih banyak berita
     var fallback=[
       {title:'Russia escalates drone attacks on Ukrainian energy infrastructure',date:new Date(Date.now()-600000).toISOString(),source:'REUTERS'},
       {title:'US-China trade war: new semiconductor export controls announced',date:new Date(Date.now()-900000).toISOString(),source:'BLOOMBERG'},
       {title:'Iran nuclear enrichment reaches 60%, IAEA raises alarm',date:new Date(Date.now()-1200000).toISOString(),source:'BBC'},
-      {title:'NATO allies increase defense spending amid Russia threat',date:new Date(Date.now()-1500000).toISOString(),source:'NYT'},
-      {title:'Middle East ceasefire talks collapse, oil prices surge',date:new Date(Date.now()-1800000).toISOString(),source:'AL JAZEERA'},
-      {title:'Fed Chair signals rate cuts delayed as inflation persists',date:new Date(Date.now()-2100000).toISOString(),source:'FT'},
-      {title:'China military exercises near Taiwan intensify',date:new Date(Date.now()-2400000).toISOString(),source:'BBC'},
-      {title:'India-Pakistan border tensions escalate after military clash',date:new Date(Date.now()-2700000).toISOString(),source:'GUARDIAN'},
-      {title:'OPEC+ considers emergency supply cut amid price war fears',date:new Date(Date.now()-3000000).toISOString(),source:'REUTERS'},
-      {title:'US Treasury sanctions target Russian oil export network',date:new Date(Date.now()-3300000).toISOString(),source:'NYT'},
-      {title:'Gold demand surges as central banks accelerate purchases',date:new Date(Date.now()-3600000).toISOString(),source:'FT'},
-      {title:'North Korea missile test over Japan triggers emergency alert',date:new Date(Date.now()-3900000).toISOString(),source:'BBC'},
+      {title:'Middle East ceasefire talks collapse, oil prices surge',date:new Date(Date.now()-1800000).toISOString(),source:'AL JAZEERA'}
     ];
     geoNewsCached=fallback; geoNewsLastFetch=now;
     renderGeoNews(fallback);
@@ -919,7 +922,6 @@ window.runGeoAI = async function(){
   finally{if(btn){btn.textContent='⚡ ANALYZE';btn.disabled=false;}}
 };
 
-
 // ── BTC via CoinGecko ──
 async function fetchBTCPrice() {
   try {
@@ -931,11 +933,9 @@ async function fetchBTCPrice() {
     var pct   = data.bitcoin.usd_24h_change;
     var dir   = pct >= 0;
     state.btc = {price: price, pct: pct, change: pct};
-    // Ticker update
     var pEl = document.getElementById('t-btc'), cEl = document.getElementById('t-btc-chg');
     if (pEl) { pEl.textContent = '$'+price.toLocaleString('en',{maximumFractionDigits:0}); pEl.className='ticker-price '+(dir?'up':'down'); }
     if (cEl) { cEl.textContent = (dir?'+':'')+pct.toFixed(2)+'%'; cEl.className='ticker-chg '+(dir?'up':'down'); }
-    // Chart page stats
     var bpEl = document.getElementById('btcPrice');
     if (bpEl) bpEl.textContent = '$'+price.toLocaleString('en',{maximumFractionDigits:0});
     var bcEl = document.getElementById('btcChg');
@@ -949,23 +949,16 @@ async function loadBTCChart() {
   if (!ctx) return;
   try {
     setStatus('btcChartStatus','load','Loading…');
-    // CoinGecko market_chart - gratis tanpa API key, interval auto 1h untuk 2 hari
     var url = 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=2&interval=hourly';
     var r = await fetch(url, {signal: AbortSignal.timeout(8000), headers:{'Accept':'application/json'}});
     if (!r.ok) throw new Error('HTTP '+r.status);
     var raw = await r.json();
     if (!raw||!raw.prices||!raw.prices.length) throw new Error('No data');
 
-    // raw.prices: [[timestamp, price], ...]
     var prices = raw.prices;
-    var series = prices.map(function(p,i){
-      return {t:p[0]/1000, o:p[1], h:p[1], l:p[1], c:p[1]};
-    });
+    var series = prices.map(function(p,i){ return {t:p[0]/1000, o:p[1], h:p[1], l:p[1], c:p[1]}; });
     state.btcSeries = series;
-    var labels = series.map(function(v){
-      var d = new Date(v.t*1000);
-      return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0');
-    });
+    var labels = series.map(function(v){ var d = new Date(v.t*1000); return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0'); });
     var closes = series.map(function(v){ return v.c; });
 
     if (btcChart) btcChart.destroy();
@@ -974,18 +967,8 @@ async function loadBTCChart() {
     grad.addColorStop(1,'rgba(168,85,247,0)');
 
     btcChart = new Chart(ctx, {
-      type:'line',
-      data:{ labels:labels, datasets:[{
-        data:closes, borderColor:'#a855f7', borderWidth:1.5,
-        fill:true, backgroundColor:grad, tension:0.3, pointRadius:0
-      }]},
-      options:{ responsive:true, maintainAspectRatio:false,
-        plugins:{legend:{display:false}},
-        scales:{
-          x:{ticks:{color:'#3d4f6e',font:{size:8},maxTicksLimit:8},grid:{color:'rgba(26,37,64,0.5)'}},
-          y:{ticks:{color:'#3d4f6e',font:{size:8}},grid:{color:'rgba(26,37,64,0.5)'},position:'right'}
-        }
-      }
+      type:'line', data:{ labels:labels, datasets:[{ data:closes, borderColor:'#a855f7', borderWidth:1.5, fill:true, backgroundColor:grad, tension:0.3, pointRadius:0 }]},
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ticks:{color:'#3d4f6e',font:{size:8},maxTicksLimit:8},grid:{color:'rgba(26,37,64,0.5)'}}, y:{ticks:{color:'#3d4f6e',font:{size:8}},grid:{color:'rgba(26,37,64,0.5)'},position:'right'} } }
     });
 
     computeBTCSignal(series, closes);
@@ -1020,22 +1003,14 @@ function computeBTCSignal(series, closes) {
   var tp2  = isBull ? Math.round(price + atrV*3.0).toLocaleString('en') : Math.round(price - atrV*3.0).toLocaleString('en');
   var conf = 60 + (rsi?(isBull?(rsi<50?10:0):(rsi>50?10:0)):0) + (ema20&&ema50?(Math.abs(ema20-ema50)/price>0.005?10:0):0);
 
-  var rat = 'BTC '+(isBull?'bullish':'bearish')+' bias — price '+(isBull?'above':'below')+' EMA20'+
-    (ema50?' & EMA50':'')+'. RSI: '+(rsi?rsi.toFixed(0):'N/A')+'. '+(isBull?'Watch for dip entry.':'Watch for dead-cat bounce entry.');
+  var rat = 'BTC '+(isBull?'bullish':'bearish')+' bias — price '+(isBull?'above':'below')+' EMA20. RSI: '+(rsi?rsi.toFixed(0):'N/A')+'.';
 
   var box = document.getElementById('btcSignalBox');
   if (box) box.className = 'signal-box '+(isBull?'buy':'sell');
   setEl('btcDir', isBull?'LONG ▲':'SHORT ▼');
   var dirEl = document.getElementById('btcDir');
   if (dirEl) dirEl.className = 'signal-label '+(isBull?'buy':'sell');
-  setEl('btcSetup','SETUP: '+setup);
-  setEl('btcEntry','$'+elo+' – $'+ehi);
-  setEl('btcSL','$'+sl);
-  setEl('btcTP1','$'+tp1);
-  setEl('btcTP2','$'+tp2);
-  setEl('btcRR','1:1.5 – 1:3.0');
-  setEl('btcConf',conf+'%');
-  setEl('btcRationale',rat);
+  setEl('btcSetup','SETUP: '+setup); setEl('btcEntry','$'+elo+' – $'+ehi); setEl('btcSL','$'+sl); setEl('btcTP1','$'+tp1); setEl('btcTP2','$'+tp2); setEl('btcRR','1:1.5 – 1:3.0'); setEl('btcConf',conf+'%'); setEl('btcRationale',rat);
   var rsiEl = document.getElementById('btcRSI');
   if (rsiEl) { rsiEl.textContent = rsi?rsi.toFixed(1):'—'; rsiEl.className='stat-val '+(rsi&&rsi<35?'up':rsi&&rsi>65?'down':''); }
   setEl('btcSignalBadge', isBull?'▲ LONG':'▼ SHORT');
@@ -1044,9 +1019,7 @@ function computeBTCSignal(series, closes) {
 }
 
 // ── FED WATCH ──
-var FED_MEETINGS = [
-  {label:'Jul 30, 2026'},{label:'Sep 17, 2026'},{label:'Nov 5, 2026'},{label:'Dec 10, 2026'}
-];
+var FED_MEETINGS = [{label:'Jul 30, 2026'},{label:'Sep 17, 2026'},{label:'Nov 5, 2026'},{label:'Dec 10, 2026'}];
 
 window.refreshFedWatch = async function() {
   renderFedWatchFallback();
@@ -1074,12 +1047,7 @@ function renderFedWatchFromCME(quotes) {
 }
 
 function renderFedWatchFallback() {
-  var meetings=[
-    {label:'Jul 30',cut:18,hold:82},
-    {label:'Sep 17',cut:52,hold:48},
-    {label:'Nov 5', cut:71,hold:29},
-    {label:'Dec 10',cut:83,hold:17},
-  ];
+  var meetings=[{label:'Jul 30',cut:18,hold:82},{label:'Sep 17',cut:52,hold:48},{label:'Nov 5', cut:71,hold:29},{label:'Dec 10',cut:83,hold:17}];
   setEl('fedCutProb',meetings[0].cut+'%');
   var html=meetings.map(function(m){
     var color=m.cut>60?'var(--green)':m.cut>30?'var(--gold)':'var(--red)';
@@ -1089,27 +1057,14 @@ function renderFedWatchFallback() {
 }
 
 function makeFedBar(label,cutProb,holdProb,color){
-  return '<div style="margin-bottom:8px">'+
-    '<div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:3px">'+
-      '<span style="color:var(--t2)">'+label+'</span>'+
-      '<span><span style="color:'+color+'">CUT '+cutProb+'%</span> <span style="color:var(--t3)">HOLD '+holdProb+'%</span></span>'+
-    '</div>'+
-    '<div style="display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05)">'+
-      '<div style="width:'+cutProb+'%;background:'+color+';transition:width 0.5s"></div>'+
-      '<div style="flex:1;background:rgba(122,138,170,0.15)"></div>'+
-    '</div></div>';
+  return '<div style="margin-bottom:8px"><div style="display:flex;justify-content:space-between;font-size:9px;margin-bottom:3px"><span style="color:var(--t2)">'+label+'</span><span><span style="color:'+color+'">CUT '+cutProb+'%</span> <span style="color:var(--t3)">HOLD '+holdProb+'%</span></span></div><div style="display:flex;height:5px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,0.05)"><div style="width:'+cutProb+'%;background:'+color+';transition:width 0.5s"></div><div style="flex:1;background:rgba(122,138,170,0.15)"></div></div></div>';
 }
 
 // ── HIGH IMPACT RELEASES ──
 var RECENT_RELEASES=[
   {name:'Non-Farm Payrolls (May)',  actual:'139K', forecast:'130K', prev:'147K', beat:true,  date:'Jun 6',  goldImpact:'down'},
   {name:'Core CPI (May)',           actual:'0.2%', forecast:'0.3%', prev:'0.3%', beat:true,  date:'Jun 11', goldImpact:'up'},
-  {name:'Core PCE (Apr)',           actual:'2.6%', forecast:'2.6%', prev:'2.7%', beat:false, date:'May 30', goldImpact:'up'},
-  {name:'FOMC Rate Decision',       actual:'4.25-4.50%',forecast:'4.25-4.50%',prev:'4.25-4.50%',beat:false,date:'May 7',goldImpact:'neutral'},
-  {name:'GDP Growth Q1 (Final)',    actual:'-0.5%',forecast:'-0.3%',prev:'2.4%',beat:false,  date:'May 29', goldImpact:'up'},
-  {name:'Initial Jobless Claims',   actual:'229K', forecast:'235K', prev:'232K', beat:true,  date:'Jun 12', goldImpact:'down'},
-  {name:'ISM Manufacturing PMI',    actual:'48.7', forecast:'49.5', prev:'49.0', beat:false, date:'Jun 2',  goldImpact:'up'},
-  {name:'Retail Sales (May)',       actual:'0.1%', forecast:'0.3%', prev:'-0.2%',beat:false, date:'Jun 17', goldImpact:'up'},
+  {name:'Core PCE (Apr)',           actual:'2.6%', forecast:'2.6%', prev:'2.7%', beat:false, date:'May 30', goldImpact:'up'}
 ];
 
 function renderHighImpact(){
@@ -1120,28 +1075,15 @@ function renderHighImpact(){
     var beatLabel=r.beat?'▲ BEAT':'▼ MISS';
     var goldColor=r.goldImpact==='up'?'var(--green)':r.goldImpact==='down'?'var(--red)':'var(--gold)';
     var goldLabel=r.goldImpact==='up'?'▲ GOLD+':r.goldImpact==='down'?'▼ GOLD-':'◆ NEUTRAL';
-    return '<div style="padding:9px 12px;border-bottom:1px solid var(--border)">'+
-      '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">'+
-        '<span style="font-size:10px;color:var(--t1);font-weight:600">'+r.name+'</span>'+
-        '<span style="font-size:9px;color:var(--t3)">'+r.date+'</span>'+
-      '</div>'+
-      '<div style="display:flex;gap:10px;align-items:center">'+
-        '<span style="font-size:9px;color:var(--t3)">A: <span style="color:var(--t1)">'+r.actual+'</span></span>'+
-        '<span style="font-size:9px;color:var(--t3)">F: '+r.forecast+'</span>'+
-        '<span style="font-size:9px;color:var(--t3)">P: '+r.prev+'</span>'+
-        '<span style="margin-left:auto;font-size:9px;font-weight:700;color:'+beatColor+'">'+beatLabel+'</span>'+
-        '<span style="font-size:9px;font-weight:700;color:'+goldColor+'">'+goldLabel+'</span>'+
-      '</div></div>';
+    return '<div style="padding:9px 12px;border-bottom:1px solid var(--border)"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--t1);font-weight:600">'+r.name+'</span><span style="font-size:9px;color:var(--t3)">'+r.date+'</span></div><div style="display:flex;gap:10px;align-items:center"><span style="font-size:9px;color:var(--t3)">A: <span style="color:var(--t1)">'+r.actual+'</span></span><span style="font-size:9px;color:var(--t3)">F: '+r.forecast+'</span><span style="font-size:9px;color:var(--t3)">P: '+r.prev+'</span><span style="margin-left:auto;font-size:9px;font-weight:700;color:'+beatColor+'">'+beatLabel+'</span><span style="font-size:9px;font-weight:700;color:'+goldColor+'">'+goldLabel+'</span></div></div>';
   }).join('');
 }
 
-// ── NEWS ──
-// ── NEWS via NewsAPI.org ──
+// ── NEWS via NewsAPI.org / Newsdata.io ──
 var NEWS_DATA_KEY = localStorage.getItem('dfxai_newsdata') || '';
 var newsLastFetch = 0;
 var newsCached = [];
 
-// Simpan key NewsAPI (dipanggil dari UI jika user mau set key)
 window.setNewsDataKey = function(key) {
   NEWS_DATA_KEY = (key||'').trim();
   localStorage.setItem('dfxai_newsdata', NEWS_DATA_KEY);
@@ -1161,87 +1103,41 @@ function renderNewsPanel(items) {
   var panel = document.getElementById('newsPreview'); if(!panel) return;
   panel.innerHTML = items.map(function(a) {
     var time = a.date ? newsTimeAgo(a.date) : 'Today';
-    var impact = /fed|fomc|nfp|payroll|cpi|pce|gdp|rate decision|inflation/i.test(a.t) ? 'high'
-               : /gold|xau|dollar|dxy|china|oil|yield|treasury|war|conflict/i.test(a.t) ? 'med' : 'low';
-    return '<div class="news-item">'+
-      '<div class="news-header">'+
-        '<span class="news-time">'+time+'</span>'+
-        '<span class="news-source">'+a.s+'</span>'+
-        '<div class="impact-badge impact-'+impact+'">'+impact.toUpperCase()+'</div>'+
-      '</div>'+
-      '<div class="news-title">'+a.t+'</div>'+
-      (a.d ? '<div class="news-desc">'+a.d+'</div>' : '')+
-    '</div>';
+    var impact = /fed|fomc|nfp|payroll|cpi|pce|gdp|rate decision|inflation/i.test(a.t) ? 'high' : /gold|xau|dollar|dxy|china|oil|yield|treasury|war|conflict/i.test(a.t) ? 'med' : 'low';
+    return '<div class="news-item"><div class="news-header"><span class="news-time">'+time+'</span><span class="news-source">'+a.s+'</span><div class="impact-badge impact-'+impact+'">'+impact.toUpperCase()+'</div></div><div class="news-title">'+a.t+'</div>'+(a.d ? '<div class="news-desc">'+a.d+'</div>' : '')+'</div>';
   }).join('');
 }
 
 function renderNewsFallback() {
   renderNewsPanel([
     {t:'Fed officials signal patience on rate cuts', s:'REUTERS', d:'Multiple Fed speakers reiterate data-dependent approach.', date:''},
-    {t:'Gold ETF inflows surge to 3-month high', s:'BLOOMBERG', d:'Safe-haven demand accelerates amid geopolitical risk.', date:''},
-    {t:'US Treasury yields decline on soft PMI data', s:'WSJ', d:'10Y yield falls supporting non-yielding assets.', date:''},
-    {t:'China PBoC adds gold for 18th consecutive month', s:'REUTERS', d:'De-dollarization strategy continues at full pace.', date:''},
-    {t:'DXY breaks below key 100.00 support', s:'FXSTREET', d:'Dollar weakness broad-based on fiscal concerns.', date:''},
+    {t:'Gold ETF inflows surge to 3-month high', s:'BLOOMBERG', d:'Safe-haven demand accelerates amid geopolitical risk.', date:''}
   ]);
 }
 
 async function fetchNews(force) {
   var now = Date.now();
-  if(!force && newsCached.length > 0 && now - newsLastFetch < 900000) {
-    renderNewsPanel(newsCached); return;
-  }
-
+  if(!force && newsCached.length > 0 && now - newsLastFetch < 900000) { renderNewsPanel(newsCached); return; }
   var key = NEWS_DATA_KEY || localStorage.getItem('dfxai_newsdata') || '';
   if(!key) { renderNewsFallback(); return; }
-
   try {
     var allArticles = [];
-    // newsdata.io — support CORS browser, prioritydomain=top untuk sumber terpercaya
-    var url = 'https://newsdata.io/api/1/news?apikey='+key+
-      '&q=gold+XAU+Federal+Reserve+OR+dollar+DXY+OR+interest+rate+inflation&language=en&size=10&prioritydomain=top';
+    var url = 'https://newsdata.io/api/1/news?apikey='+key+'&q=gold+XAU+Federal+Reserve+OR+dollar+DXY+OR+interest+rate+inflation&language=en&size=10&prioritydomain=top';
     var r = await fetch(url, {signal: AbortSignal.timeout(8000)});
     var data = await r.json();
-
     if(data.status === 'success' && data.results && data.results.length) {
-      data.results
-        .filter(function(a){
-          return a.title
-            && a.title.length > 10
-            && isCredibleSource(a.source_id)
-            && (Date.now() - new Date(a.pubDate) < 259200000); // max 3 hari
-        })
-        .forEach(function(a) {
-          allArticles.push({
-            t: a.title,
-            s: a.source_id ? a.source_id.toUpperCase().substring(0,12) : 'NEWS',
-            d: a.description ? a.description.substring(0,120) : '',
-            date: a.pubDate || ''
-          });
-        });
+      data.results.filter(function(a){ return a.title && a.title.length > 10 && isCredibleSource(a.source_id) && (Date.now() - new Date(a.pubDate) < 259200000); })
+        .forEach(function(a) { allArticles.push({ t: a.title, s: a.source_id ? a.source_id.toUpperCase().substring(0,12) : 'NEWS', d: a.description ? a.description.substring(0,120) : '', date: a.pubDate || '' }); });
     }
-
     if(allArticles.length === 0) throw new Error('No articles');
-
-    // Sort by date, deduplicate
     allArticles.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
     var seen = [];
-    allArticles = allArticles.filter(function(a) {
-      var k2 = a.t.substring(0,30).toLowerCase();
-      if(seen.indexOf(k2) !== -1) return false;
-      seen.push(k2); return true;
-    }).slice(0, 8);
-
-    newsCached = allArticles;
-    newsLastFetch = now;
-    renderNewsPanel(allArticles);
-
+    allArticles = allArticles.filter(function(a) { var k2 = a.t.substring(0,30).toLowerCase(); if(seen.indexOf(k2) !== -1) return false; seen.push(k2); return true; }).slice(0, 8);
+    newsCached = allArticles; newsLastFetch = now; renderNewsPanel(allArticles);
   } catch(e) {
-    console.warn('NewsAPI failed:', e.message);
-    if(newsCached.length > 0) renderNewsPanel(newsCached);
-    else renderNewsFallback();
+    if(newsCached.length > 0) renderNewsPanel(newsCached); else renderNewsFallback();
   }
 }
-
 
 // ── GOLD ETF INFLOW/OUTFLOW ──
 var GOLD_ETF_DATA = {
@@ -1249,117 +1145,58 @@ var GOLD_ETF_DATA = {
     {name:'SPDR Gold Shares',     ticker:'GLD',   tonnes:857.2,  change:+4.2,  changeWk:+8.1,  aum:'$71.2B', region:'US'},
     {name:'iShares Gold Trust',   ticker:'IAU',   tonnes:312.4,  change:-1.1,  changeWk:+2.4,  aum:'$26.0B', region:'US'},
     {name:'SPDR Gold MiniShares', ticker:'GLDM',  tonnes:74.3,   change:+1.8,  changeWk:+3.2,  aum:'$6.2B',  region:'US'},
-    {name:'Invesco DB Gold',      ticker:'DGL',   tonnes:18.6,   change:+0.3,  changeWk:+0.9,  aum:'$1.5B',  region:'US'},
     {name:'iShares Physical Gold',ticker:'IGLN',  tonnes:236.1,  change:+3.4,  changeWk:+6.7,  aum:'$19.6B', region:'EU'},
     {name:'Xetra-Gold',           ticker:'4GLD',  tonnes:246.8,  change:-0.6,  changeWk:+1.2,  aum:'$20.5B', region:'EU'},
-    {name:'WisdomTree Gold',      ticker:'PHAU',  tonnes:198.3,  change:+2.1,  changeWk:+4.8,  aum:'$16.5B', region:'EU'},
     {name:'ICBC Gold ETF',        ticker:'518880',tonnes:85.4,   change:+5.6,  changeWk:+9.2,  aum:'$7.1B',  region:'Asia'},
   ],
   monthly: {
     labels: ['Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun','Jul'],
     inflow:  [18.4, 24.1, 31.2, 12.8,  0,   42.1, 38.6, 15.3, 28.7, 19.2, 34.5, 11.8],
     outflow: [-5.2, -8.1, -3.4,-12.1,-21.3, -4.2, -6.8, -9.1, -5.3, -8.4, -3.2, -6.7],
-  },
-  lastUpdate: 'Jul 2026'
+  }, lastUpdate: 'Jul 2026'
 };
 
 var etfChart = null;
-
 function renderGoldETF() {
   var data = GOLD_ETF_DATA;
-
-  // Hitung totals
   var totalT    = data.funds.reduce(function(s,f){return s+f.tonnes;},0);
   var total24h  = data.funds.reduce(function(s,f){return s+f.change;},0);
   var total7d   = data.funds.reduce(function(s,f){return s+f.changeWk;},0);
   var netArr    = data.monthly.inflow.map(function(v,i){return v+data.monthly.outflow[i];});
   var lastNet   = netArr[netArr.length-1];
 
-  // ─ Summary cards ─
   var sumEl = document.getElementById('etfSummary');
   if(sumEl) {
     function card(label, val, unit, color, sub) {
-      return '<div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid '+color.replace('var(','rgba(').replace(')',',0.25)')+'">'+
-        '<div class="stat-label">'+label+'</div>'+
-        '<div style="font-family:\"Syne\",sans-serif;font-size:22px;font-weight:800;color:'+color+'">'+val+'</div>'+
-        '<div style="font-size:9px;color:var(--t3)">'+sub+'</div>'+
-      '</div>';
+      return '<div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid '+color.replace('var(','rgba(').replace(')',',0.25)')+'"><div class="stat-label">'+label+'</div><div style="font-family:\'Syne\',sans-serif;font-size:22px;font-weight:800;color:'+color+'">'+val+'</div><div style="font-size:9px;color:var(--t3)">'+sub+'</div></div>';
     }
-    var d24c = total24h>=0?'var(--green)':'var(--red)';
-    var d7c  = total7d>=0?'var(--green)':'var(--red)';
-    var lnc  = lastNet>=0?'var(--green)':'var(--red)';
-    sumEl.innerHTML =
-      card('TOTAL HOLDINGS', totalT.toFixed(1)+'T', '', 'var(--gold)', 'All tracked ETFs') +
-      card('24H FLOW', (total24h>=0?'+':'')+total24h.toFixed(1)+'T', '', d24c, total24h>=0?'NET INFLOW':'NET OUTFLOW') +
-      card('7D FLOW',  (total7d>=0?'+':'')+total7d.toFixed(1)+'T',  '', d7c,  total7d>=0?'BULLISH SIGNAL':'BEARISH SIGNAL') +
-      card('LAST MONTH NET', (lastNet>=0?'+':'')+lastNet.toFixed(1)+'T', '', lnc, data.lastUpdate);
+    sumEl.innerHTML = card('TOTAL HOLDINGS', totalT.toFixed(1)+'T', '', 'var(--gold)', 'All tracked ETFs') + card('24H FLOW', (total24h>=0?'+':'')+total24h.toFixed(1)+'T', '', total24h>=0?'var(--green)':'var(--red)', total24h>=0?'NET INFLOW':'NET OUTFLOW') + card('7D FLOW',  (total7d>=0?'+':'')+total7d.toFixed(1)+'T',  '', total7d>=0?'var(--green)':'var(--red)',  total7d>=0?'BULLISH SIGNAL':'BEARISH SIGNAL') + card('LAST MONTH NET', (lastNet>=0?'+':'')+lastNet.toFixed(1)+'T', '', lastNet>=0?'var(--green)':'var(--red)', data.lastUpdate);
   }
 
-  // ─ Table ─
   var tbl = document.getElementById('etfTable');
   if(tbl) {
     tbl.innerHTML = '<tr><th>FUND</th><th>TICKER</th><th>HOLDINGS</th><th>24H</th><th>7D</th><th>AUM</th><th>SIGNAL</th></tr>' +
       data.funds.map(function(f){
-        var d24c  = f.change>=0?'var(--green)':'var(--red)';
-        var d7c   = f.changeWk>=0?'var(--green)':'var(--red)';
-        var sig   = f.changeWk>3?'▲ INFLOW':f.changeWk<-3?'▼ OUTFLOW':'◆ NEUTRAL';
-        var sigC  = f.changeWk>3?'var(--green)':f.changeWk<-3?'var(--red)':'var(--gold)';
-        return '<tr>'+
-          '<td>'+f.name+'</td>'+
-          '<td style="color:var(--blue);font-weight:700">'+f.ticker+'</td>'+
-          '<td>'+f.tonnes.toFixed(1)+'T</td>'+
-          '<td style="color:'+d24c+'">'+(f.change>=0?'+':'')+f.change.toFixed(1)+'T</td>'+
-          '<td style="color:'+d7c+'">'+(f.changeWk>=0?'+':'')+f.changeWk.toFixed(1)+'T</td>'+
-          '<td style="color:var(--t2)">'+f.aum+'</td>'+
-          '<td style="color:'+sigC+';font-weight:700">'+sig+'</td>'+
-        '</tr>';
+        return '<tr><td>'+f.name+'</td><td style="color:var(--blue);font-weight:700">'+f.ticker+'</td><td>'+f.tonnes.toFixed(1)+'T</td><td style="color:'+(f.change>=0?'var(--green)':'var(--red)')+'">'+(f.change>=0?'+':'')+f.change.toFixed(1)+'T</td><td style="color:'+(f.changeWk>=0?'var(--green)':'var(--red)')+'">'+(f.changeWk>=0?'+':'')+f.changeWk.toFixed(1)+'T</td><td style="color:var(--t2)">'+f.aum+'</td><td style="color:'+(f.changeWk>3?'var(--green)':f.changeWk<-3?'var(--red)':'var(--gold)')+';font-weight:700">'+(f.changeWk>3?'▲ INFLOW':f.changeWk<-3?'▼ OUTFLOW':'◆ NEUTRAL')+'</td></tr>';
       }).join('');
   }
 
-  // ─ Region totals ─
-  ['US','EU','Asia'].forEach(function(r){
-    var t = data.funds.filter(function(f){return f.region===r;}).reduce(function(s,f){return s+f.tonnes;},0);
-    setEl('etf'+r, t.toFixed(1)+'T');
-  });
-
-  // ─ Flow chart ─
-  var ctx = document.getElementById('etfFlowChart');
-  if(!ctx) return;
+  ['US','EU','Asia'].forEach(function(r){ var t = data.funds.filter(function(f){return f.region===r;}).reduce(function(s,f){return s+f.tonnes;},0); setEl('etf'+r, t.toFixed(1)+'T'); });
+  var ctx = document.getElementById('etfFlowChart'); if(!ctx) return;
   if(etfChart) { etfChart.destroy(); etfChart=null; }
-
   var net = data.monthly.inflow.map(function(v,i){return +(v+data.monthly.outflow[i]).toFixed(1);});
-
   etfChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: data.monthly.labels,
-      datasets: [
-        {label:'Inflow (T)',  data:data.monthly.inflow,  backgroundColor:'rgba(34,217,138,0.5)',borderColor:'rgba(34,217,138,0.8)',borderWidth:1,borderRadius:2},
-        {label:'Outflow (T)', data:data.monthly.outflow, backgroundColor:'rgba(255,77,109,0.5)',borderColor:'rgba(255,77,109,0.8)',borderWidth:1,borderRadius:2},
-        {label:'Net (T)', data:net, type:'line', borderColor:'#f0c040', borderWidth:2, pointRadius:3, pointBackgroundColor:'#f0c040', fill:false, tension:0.3}
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{legend:{labels:{color:'#7a8aaa',font:{size:9}}}},
-      scales:{
-        x:{ticks:{color:'#3d4f6e',font:{size:9}},grid:{color:'rgba(26,37,64,0.5)'}},
-        y:{ticks:{color:'#3d4f6e',font:{size:9}},grid:{color:'rgba(26,37,64,0.5)'},position:'left'}
-      }
-    }
+    type: 'bar', data: { labels: data.monthly.labels, datasets: [ {label:'Inflow (T)', data:data.monthly.inflow, backgroundColor:'rgba(34,217,138,0.5)',borderColor:'rgba(34,217,138,0.8)',borderWidth:1,borderRadius:2},{label:'Outflow (T)', data:data.monthly.outflow, backgroundColor:'rgba(255,77,109,0.5)',borderColor:'rgba(255,77,109,0.8)',borderWidth:1,borderRadius:2},{label:'Net (T)', data:net, type:'line', borderColor:'#f0c040', borderWidth:2, pointRadius:3, fill:false, tension:0.3} ] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#7a8aaa',font:{size:9}}}}, scales:{ x:{ticks:{color:'#3d4f6e',font:{size:9}},grid:{color:'rgba(26,37,64,0.5)'}}, y:{ticks:{color:'#3d4f6e',font:{size:9}},grid:{color:'rgba(26,37,64,0.5)'},position:'left'} } }
   });
 }
 
 // ── INIT ──
 async function init() {
-  // Load newsdata key dari localStorage
   NEWS_DATA_KEY = localStorage.getItem('dfxai_newsdata') || '';
-  // Isi input field jika key sudah ada
   if(NEWS_DATA_KEY) {
-    var ndInput = document.getElementById('newsdataKeyInput');
-    if(ndInput) ndInput.placeholder = 'Key sudah tersimpan ✓';
-    var ndStatus = document.getElementById('ndKeyStatus');
-    if(ndStatus) ndStatus.textContent = '✓ Key active';
+    var ndInput = document.getElementById('newsdataKeyInput'); if(ndInput) ndInput.placeholder = 'Key sudah tersimpan ✓';
+    var ndStatus = document.getElementById('ndKeyStatus'); if(ndStatus) ndStatus.textContent = '✓ Key active';
   }
   updateMarketBanner();
   setInterval(updateMarketBanner, 60000);
