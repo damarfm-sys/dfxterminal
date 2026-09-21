@@ -1115,34 +1115,70 @@ function computeBTCSignal(series, closes) {
 }
 
 // ── FED WATCH ──
-var FED_MEETINGS = [{label:'Jul 30, 2026'},{label:'Sep 17, 2026'},{label:'Nov 5, 2026'},{label:'Dec 10, 2026'}];
-window.refreshFedWatch = async function() {
-  renderFedWatchFallback();
+function getUpcomingFedMeetings() {
+  var calendar = [
+    {label:'Sep 17, 2026', date:'2026-09-17'},
+    {label:'Nov 5, 2026',  date:'2026-11-05'},
+    {label:'Dec 10, 2026', date:'2026-12-10'},
+    {label:'Jan 28, 2027', date:'2027-01-28'},
+    {label:'Mar 18, 2027', date:'2027-03-18'},
+    {label:'May 6, 2027',  date:'2027-05-06'},
+    {label:'Jun 17, 2027', date:'2027-06-17'},
+    {label:'Jul 29, 2027', date:'2027-07-29'}
+  ];
+  var now = new Date();
+  return calendar.filter(function(m){ return new Date(m.date) >= now; }).slice(0, 4);
+}
+
+window.refreshFedWatch = async function(force) {
+  var meetings = getUpcomingFedMeetings();
+  if (meetings.length) {
+    var nextLabel = meetings[0].label;
+    setEl('fedNextMeet', nextLabel.replace(', 2026', '').replace(', 2027', ''));
+  }
+  var container=document.getElementById('fedWatchBars');
+  if(container) container.innerHTML = '<div style="text-align:center;color:var(--t3);font-size:10px;padding:8px">Refreshing Fed Watch…</div>';
+
   try {
-    var url='https://www.cmegroup.com/CmeWS/mvc/Quotes/Future/305/G?quoteCodes=null&_='+Date.now();
-    var data=await proxyFetch(url);
-    if(data&&data.quotes) renderFedWatchFromCME(data.quotes);
-  } catch(e) { }
+    var url = 'https://www.cmegroup.com/CmeWS/mvc/Quotes/Future/305/G?quoteCodes=null&_=' + Date.now();
+    var data = await proxyFetch(url);
+    if (data && data.quotes && data.quotes.length) {
+      renderFedWatchFromCME(data.quotes, meetings);
+      return;
+    }
+    throw new Error('No Fed futures data returned');
+  } catch(e) {
+    renderFedWatchFallback(meetings);
+  }
 };
-function renderFedWatchFromCME(quotes) {
+function renderFedWatchFromCME(quotes, meetings) {
   var container=document.getElementById('fedWatchBars'); if(!container) return;
+  var schedule = meetings && meetings.length ? meetings : getUpcomingFedMeetings();
   var html='', firstCut=null;
   quotes.slice(0,4).forEach(function(q,i){
-    var meet=FED_MEETINGS[i]||{label:'Meeting '+(i+1)};
+    var meet=schedule[i]||{label:'Meeting '+(i+1)};
     var price=parseFloat(q.last)||0;
-    var cutProb=Math.max(0,Math.min(100,100-price)).toFixed(1);
-    var holdProb=(100-cutProb).toFixed(1);
-    if(!firstCut&&cutProb>30){firstCut=cutProb;setEl('fedCutProb',cutProb+'%');}
+    var cutProb=Math.max(0,Math.min(100,100-price));
+    var holdProb=100-cutProb;
+    if(!firstCut&&cutProb>30){firstCut=cutProb; setEl('fedCutProb', cutProb.toFixed(1)+'%'); }
     var color=cutProb>60?'var(--green)':cutProb>30?'var(--gold)':'var(--red)';
-    html+=makeFedBar(meet.label,cutProb,holdProb,color);
+    html+=makeFedBar(meet.label, cutProb.toFixed(1), holdProb.toFixed(1), color);
   });
-  if(!firstCut)setEl('fedCutProb','<30%');
+  if(!firstCut) setEl('fedCutProb','<30%');
   container.innerHTML=html||'<div style="color:var(--t3);font-size:10px;padding:10px">Data tidak tersedia</div>';
 }
-function renderFedWatchFallback() {
-  var meetings=[{label:'Jul 30',cut:18,hold:82},{label:'Sep 17',cut:52,hold:48},{label:'Nov 5',cut:71,hold:29},{label:'Dec 10',cut:83,hold:17}];
-  setEl('fedCutProb',meetings[0].cut+'%');
-  var html=meetings.map(function(m){ var color=m.cut>60?'var(--green)':m.cut>30?'var(--gold)':'var(--red)'; return makeFedBar(m.label,m.cut,m.hold,color); }).join('');
+function renderFedWatchFallback(meetings) {
+  var schedule = meetings && meetings.length ? meetings : getUpcomingFedMeetings();
+  var fallback = [
+    {label:schedule[0] ? schedule[0].label : 'Next FOMC', cut:18, hold:82},
+    {label:schedule[1] ? schedule[1].label : 'Next +1', cut:52, hold:48},
+    {label:schedule[2] ? schedule[2].label : 'Next +2', cut:71, hold:29},
+    {label:schedule[3] ? schedule[3].label : 'Next +3', cut:83, hold:17}
+  ];
+  var first = fallback[0];
+  setEl('fedCutProb', first.cut+'%');
+  setEl('fedNextMeet', first.label.replace(', 2026', '').replace(', 2027', ''));
+  var html=fallback.map(function(m){ var color=m.cut>60?'var(--green)':m.cut>30?'var(--gold)':'var(--red)'; return makeFedBar(m.label,m.cut,m.hold,color); }).join('');
   var c=document.getElementById('fedWatchBars'); if(c) c.innerHTML=html;
 }
 function makeFedBar(label,cutProb,holdProb,color){

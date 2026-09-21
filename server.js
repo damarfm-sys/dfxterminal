@@ -2,8 +2,10 @@
 // Usage: GET /fetch?url=<encoded url>
 
 const express = require('express');
+const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 8080;
+const ROOT = __dirname;
 
 app.use(function(req, res, next) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -11,6 +13,11 @@ app.use(function(req, res, next) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
+});
+
+app.use(express.static(ROOT));
+app.get('/', function(req, res) {
+  res.sendFile(path.join(ROOT, 'index.html'));
 });
 
 app.get('/fetch', async (req, res) => {
