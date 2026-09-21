@@ -10,7 +10,6 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="auth.js" defer></script>
 <style>
-/* ── TICKER SCROLL (CSS animation, tidak ganggu layout) ── */
 .ticker-strip {
   flex: 1;
   overflow: hidden;
@@ -33,7 +32,6 @@
 }
 .ticker-sep { color: var(--t3); font-size: 8px; }
 
-/* ── GEO NEWS ── */
 .geo-news-item{padding:10px 12px;border-bottom:1px solid var(--border);transition:background .2s}
 .geo-news-item:hover{background:rgba(240,192,64,.04)}
 .geo-news-item:last-child{border-bottom:none}
@@ -86,7 +84,7 @@
           <button class="auth-btn sec" onclick="window.switchAuthTab('login')" style="margin-top:4px">← Back to Login</button>
         </div>
       </div>
-      <div class="auth-footer">🔒 Secured by Supabase · DFXAi Terminal v17</div>
+      <div class="auth-footer">🔒 Secured by Supabase · DFXAi Terminal v18</div>
     </div>
   </div>
 </div>
@@ -109,7 +107,6 @@
       <span class="ticker-item"><span class="ticker-sym">US10Y</span><span class="ticker-price" id="t-us10">—</span><span class="ticker-chg" id="t-us10-chg">—</span></span>
       <span class="ticker-sep">◆</span>
       <span class="ticker-item"><span class="ticker-sym">BTC/USD</span><span class="ticker-price" id="t-btc">—</span><span class="ticker-chg" id="t-btc-chg">—</span></span>
-      <!-- clone untuk seamless loop -->
       <span class="ticker-sep">◆</span>
       <span class="ticker-item"><span class="ticker-sym">XAU/USD</span><span class="ticker-price" id="t-xau-c">—</span><span class="ticker-chg" id="t-xau-chg-c">—</span></span>
       <span class="ticker-sep">◆</span>
@@ -166,7 +163,6 @@
 <!-- ═══ DASHBOARD ═══ -->
 <div id="page-dashboard" class="page active">
   <div class="grid-4" style="margin-bottom:8px">
-    <!-- XAU HERO -->
     <div class="panel col-span-2">
       <div class="panel-header">
         <div class="panel-title"><span class="accent">XAU</span>/USD · SPOT GOLD</div>
@@ -184,7 +180,6 @@
         <div><div class="stat-label">Change %</div><div class="stat-val" id="xauPct">—</div></div>
       </div>
     </div>
-    <!-- DXY -->
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">EUR/USD</span> · DXY Proxy</div></div>
       <div style="padding:12px">
@@ -201,7 +196,6 @@
         </div>
       </div>
     </div>
-    <!-- SIGNAL -->
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> TODAY'S SIGNAL</div><span style="font-size:9px;color:var(--t3)" id="signalDate">—</span></div>
       <div style="padding:12px">
@@ -220,7 +214,6 @@
     </div>
   </div>
 
-  <!-- CHART + LEVELS -->
   <div class="grid-4" style="margin-bottom:8px">
     <div class="panel col-span-3">
       <div class="panel-header">
@@ -252,7 +245,6 @@
     </div>
   </div>
 
-  <!-- BOTTOM ROW -->
   <div class="grid-3">
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> FUNDAMENTAL MATRIX</div></div>
@@ -308,7 +300,6 @@
     </div>
   </div>
 
-  <!-- BTC Row -->
   <div class="grid-2" style="margin-bottom:8px">
     <div class="panel">
       <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
@@ -344,8 +335,6 @@
       </div>
     </div>
   </div>
-
-  <!-- Existing XAU indicators (preserved) -->
 </div>
 
 <!-- ═══ SCREENER ═══ -->
@@ -408,19 +397,36 @@
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">◈</span> COT POSITIONING</div></div>
       <div style="padding:12px">
-        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--t2)">MM LONG</span><span style="color:var(--green);font-size:11px">246,412</span></div><div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px"><div style="width:78%;height:100%;background:var(--green);border-radius:3px"></div></div></div>
-        <div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;margin-bottom:4px"><span style="font-size:10px;color:var(--t2)">MM SHORT</span><span style="color:var(--red);font-size:11px">48,230</span></div><div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px"><div style="width:22%;height:100%;background:var(--red);border-radius:3px"></div></div></div>
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:10px;color:var(--t2)">MM LONG</span>
+            <span style="color:var(--green);font-size:11px" id="sigCotMmLong">246,412</span>
+            <span style="color:var(--green);font-size:9px" id="sigCotMmLongPct"></span>
+          </div>
+          <div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px">
+            <div id="cotMmLongBar" style="width:78%;height:100%;background:var(--green);border-radius:3px;transition:width 0.6s"></div>
+          </div>
+        </div>
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+            <span style="font-size:10px;color:var(--t2)">MM SHORT</span>
+            <span style="color:var(--red);font-size:11px" id="sigCotMmShort">48,230</span>
+            <span style="color:var(--red);font-size:9px" id="sigCotMmShortPct"></span>
+          </div>
+          <div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px">
+            <div id="cotMmShortBar" style="width:22%;height:100%;background:var(--red);border-radius:3px;transition:width 0.6s"></div>
+          </div>
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;padding-top:8px;border-top:1px solid var(--border)">
-          <div><div class="stat-label">Net Position</div><div class="stat-val up">+198,182</div></div>
-          <div><div class="stat-label">WoW Change</div><div class="stat-val up">+12,400</div></div>
-          <div><div class="stat-label">L/S Ratio</div><div class="stat-val">5.1 : 1</div></div>
-          <div><div class="stat-label">COT Bias</div><div class="stat-val up">BULLISH</div></div>
+          <div><div class="stat-label">Net Position</div><div class="stat-val up" id="sigCotNet">+198,182</div></div>
+          <div><div class="stat-label">WoW Change</div><div class="stat-val up" id="sigCotWow">+12,400</div></div>
+          <div><div class="stat-label">L/S Ratio</div><div class="stat-val" id="sigCotRatio">5.1 : 1</div></div>
+          <div><div class="stat-label">COT Bias</div><div class="stat-val up" id="sigCotBias">BULLISH</div></div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- WINRATE + TANDAI HASIL -->
   <div class="grid-2" style="margin-top:8px">
     <div class="panel">
       <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
@@ -504,7 +510,6 @@
     </div>
   </div>
 
-  <!-- TABEL RIWAYAT -->
   <div class="panel" style="margin-top:8px">
     <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
       <div class="panel-title"><span class="accent">◈</span> RIWAYAT SIGNAL</div>
@@ -519,29 +524,38 @@
       </table>
     </div>
   </div>
-
 </div>
 
 <!-- ═══ COT ═══ -->
 <div id="page-cot" class="page">
   <div class="grid-2">
     <div class="panel">
-      <div class="panel-header"><div class="panel-title"><span class="accent">CFTC</span> COT — GOLD</div><span style="font-size:9px;color:var(--t3)">WEEKLY</span></div>
+      <div class="panel-header"><div class="panel-title"><span class="accent">CFTC</span> COT — GOLD</div><span style="font-size:9px;color:var(--t3)">WEEKLY · LIVE</span></div>
       <div style="padding:12px">
-        <table class="data-table"><tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
-          <tr><td style="color:var(--blue)">Managed Money</td><td class="up">246,412</td><td class="down">48,230</td><td class="up">+198,182</td><td class="up">+12,400</td></tr>
+        <table class="data-table">
+          <tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
+          <tr>
+            <td style="color:var(--blue)">Managed Money</td>
+            <td class="up" id="cotMmLong">246,412</td>
+            <td class="down" id="cotMmShort">48,230</td>
+            <td class="up" id="cotMmNet">+198,182</td>
+            <td class="up" id="cotMmWow">+12,400</td>
+          </tr>
           <tr><td style="color:var(--purple)">Producers</td><td class="up">28,400</td><td class="down">312,840</td><td class="down">−284,440</td><td class="down">−4,200</td></tr>
           <tr><td style="color:var(--cyan)">Swap Dealers</td><td class="up">142,890</td><td class="down">68,210</td><td class="up">+74,680</td><td class="up">+3,100</td></tr>
           <tr><td style="color:var(--gold)">Non-Report.</td><td class="up">62,100</td><td class="down">50,300</td><td class="up">+11,800</td><td class="down">−800</td></tr>
         </table>
         <div style="margin-top:12px;height:160px"><canvas id="cotBarChart"></canvas></div>
-        <div style="margin-top:10px;padding:10px;background:rgba(34,217,138,0.05);border:1px solid rgba(34,217,138,0.2);border-radius:3px;font-size:10px;color:var(--t2);line-height:1.5">COT bias: Managed Money net long <span class="up">+198,182</span>. WoW smart money increased longs by <span class="up">+12,400</span>. <span class="up">BULLISH for Gold.</span></div>
+        <div id="cotBiasComment" style="margin-top:10px;padding:10px;background:rgba(34,217,138,0.05);border:1px solid rgba(34,217,138,0.2);border-radius:3px;font-size:10px;color:var(--t2);line-height:1.5">
+          Loading COT data…
+        </div>
       </div>
     </div>
     <div class="panel">
       <div class="panel-header"><div class="panel-title"><span class="accent">CFTC</span> COT — DXY FUTURES</div></div>
       <div style="padding:12px">
-        <table class="data-table"><tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
+        <table class="data-table">
+          <tr><th>Category</th><th>Long</th><th>Short</th><th>Net</th><th>WoW</th></tr>
           <tr><td style="color:var(--blue)">Managed Money</td><td class="up">42,100</td><td class="down">98,320</td><td class="down">−56,220</td><td class="down">−3,400</td></tr>
           <tr><td style="color:var(--purple)">Leveraged Funds</td><td class="up">28,400</td><td class="down">62,840</td><td class="down">−34,440</td><td class="down">−1,800</td></tr>
           <tr><td style="color:var(--cyan)">Asset Managers</td><td class="up">18,900</td><td class="down">8,210</td><td class="up">+10,690</td><td class="down">−400</td></tr>
@@ -556,8 +570,6 @@
 <!-- ═══ CALENDAR ═══ -->
 <div id="page-calendar" class="page">
   <div class="grid-2" style="align-items:start">
-
-    <!-- KIRI: Calendar iframe -->
     <div class="panel">
       <div class="panel-header">
         <div class="panel-title"><span class="accent">◈</span> ECONOMIC CALENDAR — LIVE</div>
@@ -587,10 +599,7 @@
       </div>
     </div>
 
-    <!-- KANAN: Fed Watch + High Impact -->
     <div style="display:flex;flex-direction:column;gap:8px">
-
-      <!-- FED WATCH -->
       <div class="panel">
         <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
           <div class="panel-title"><span class="accent">◈</span> FED RATE CUT PROBABILITY</div>
@@ -618,7 +627,6 @@
         </div>
       </div>
 
-      <!-- HIGH IMPACT RELEASES -->
       <div class="panel">
         <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
           <div class="panel-title"><span class="accent">◈</span> RECENT HIGH-IMPACT RELEASES</div>
@@ -628,7 +636,6 @@
           <div style="padding:20px;text-align:center;color:var(--t3);font-size:10px">Loading…</div>
         </div>
       </div>
-
     </div>
   </div>
 </div>
@@ -807,7 +814,7 @@
       <div class="panel">
         <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between">
           <div class="panel-title"><span class="accent">◈</span> GOLD ETF HOLDINGS TRACKER</div>
-          <span style="font-size:9px;color:var(--t3)">Source: WGC / ETF providers · Jul 2026</span>
+          <span style="font-size:9px;color:var(--t3)">Source: WGC / ETF providers · LIVE</span>
         </div>
         <div style="overflow-x:auto">
           <table class="data-table" id="etfTable" style="min-width:540px">
@@ -840,7 +847,6 @@
         <button onclick="window.renderAIPanel()" style="padding:9px 14px;background:transparent;border:1px solid var(--border);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--t2)">↺ REFRESH</button>
         <span id="groqKeyStatus" style="font-size:9px;color:var(--green)"></span>
       </div>
-      <!-- Newsdata.io key -->
       <div style="display:flex;gap:8px;align-items:center;margin-top:8px;padding-top:10px;border-top:1px solid var(--border);flex-wrap:wrap">
         <span style="font-size:9px;color:var(--t3);letter-spacing:1px;white-space:nowrap">📰 NEWS KEY</span>
         <input id="newsdataKeyInput" type="password" placeholder="Paste newsdata.io API Key (pub_...)"
@@ -848,13 +854,13 @@
         <button onclick="window.setNewsDataKey(document.getElementById('newsdataKeyInput').value);document.getElementById('ndKeyStatus').textContent='✓ Saved';setTimeout(function(){fetchNews(true);},500)" style="padding:8px 14px;background:rgba(34,217,138,0.1);border:1px solid rgba(34,217,138,0.3);border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--green);letter-spacing:1px">SAVE</button>
         <span id="ndKeyStatus" style="font-size:9px;color:var(--green)"></span>
       </div>
-      <div id="aiAnalysisResult" style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;min-height:220px;display:flex;align-items:center;justify-content:center">
+      <div id="aiAnalysisResult" style="background:var(--bg-card);border:1px solid var(--border);border-radius:4px;min-height:220px;display:flex;align-items:center;justify-content:center;margin-top:12px">
         <div style="text-align:center;color:var(--t3);padding:30px">
           <div style="font-size:24px;margin-bottom:10px">🤖</div>
           <div>Enter Groq API Key above to enable AI market analysis</div>
         </div>
       </div>
-      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Groq · llama-3.3-70b-versatile · Key stored locally in browser</div>
+      <div style="margin-top:6px;font-size:9px;color:var(--t3);text-align:right">Powered by Groq · Key stored locally in browser</div>
     </div>
   </div>
   <div class="grid-2">
@@ -876,11 +882,11 @@
         1. Buka <span style="color:var(--blue)">console.groq.com</span><br>
         2. Klik <span style="color:var(--gold)">"API Keys"</span> → "Create API key"<br>
         3. Copy key <span style="color:var(--green)">gsk_...</span> → paste di atas → ACTIVATE<br>
-        <span style="color:var(--green)">✓ Gratis · 14.400 req/hari</span><br><br>
+        <span style="color:var(--green)">✓ Gratis</span><br><br>
         <div style="color:var(--blue);letter-spacing:1px;margin-bottom:6px;font-size:9px">📰 NEWSDATA.IO (LIVE NEWS)</div>
         1. Buka <span style="color:var(--blue)">newsdata.io</span> → Register<br>
         2. Copy API key <span style="color:var(--green)">pub_...</span> → paste di kolom NEWS KEY → SAVE<br>
-        <span style="color:var(--green)">✓ Gratis · 100 req/hari · Support browser CORS</span><br>
+        <span style="color:var(--green)">✓ Gratis · 100 req/hari</span><br>
         <span style="color:var(--t3)">Semua key disimpan di browser lokal</span>
       </div>
     </div>
@@ -889,11 +895,9 @@
 
 </div><!-- /main-content -->
 
-<!-- SCRIPTS -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="app.js"></script>
 <script>
-// Sync ticker clones setiap update harga
 (function(){
   var pairs = ['xau','xag','eur','gbp','jpy','us10','btc'];
   function sync(){
