@@ -1,25 +1,23 @@
-// DFXAi Terminal - App Logic (Updated & Fixed)
+// DFXAi Terminal - App Logic (Fixed v18)
 'use strict';
 
 // ── CONFIG ──
 var TD_KEY  = 'a0680ea88b934543be5eaab23f518f6d';
 var AV_KEY  = 'CVRA2AHLUR4OWPY4';
-var GROQ_KEY = ''; // Set via UI
+var GROQ_KEY = '';
 var GROQ_MODEL = 'qwen/qwen3.8-27b';
-var GEMINI_KEY = ''; // legacy - unused
 
 // ── STATE ──
-var state = { xau:{}, dxy:{}, xauSeries:[], dxySeries:[], interval:'1h', btc:{} };
+var state = { xau:{}, dxy:{}, dxyIsProxy:true, xauSeries:[], dxySeries:[], interval:'1h', btc:{} };
 var charts = {};
 
 // ── PROXIES ──
 var PROXIES = [
-  function(u){ 
-    // Use localhost proxy during local development, use native Vercel serverless proxy in production
+  function(u){
     if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      return 'http://localhost:8080/fetch?url='+encodeURIComponent(u); 
+      return 'http://localhost:8080/fetch?url='+encodeURIComponent(u);
     }
-    return '/fetch?url='+encodeURIComponent(u); 
+    return '/fetch?url='+encodeURIComponent(u);
   },
   function(u){ return 'https://api.allorigins.win/raw?url='+encodeURIComponent(u); },
   function(u){ return u; }
@@ -51,10 +49,7 @@ function fmtPct(n) {
   var v = parseFloat(n);
   return (v>=0?'+':'')+v.toFixed(2)+'%';
 }
-function setEl(id, val) {
-  var e = document.getElementById(id);
-  if (e) e.textContent = val;
-}
+function setEl(id, val) { var e = document.getElementById(id); if (e) e.textContent = val; }
 function setStatus(id, type, txt) {
   var e = document.getElementById(id);
   if (!e) return;
@@ -140,7 +135,8 @@ async function fetchQuotes() {
       try { results[kv[0]] = await yahooQuote(kv[1]); } catch(e) { console.warn(kv[0],e.message); }
     }));
 
-    // If DXY wasn't returned by Yahoo, try Stooq CSV as fallback (via first proxy)
+    // ── FIX: Stooq DXY fallback — parse by index, not by slice ──
+    // Stooq CSV format with f=sd2t2ohlcvn: Symbol,Date,Time,Open,High,Low,Close,Volume,Name
     if (!results['DXY']) {
       try {
         var stooqUrl = 'https://stooq.com/q/l/?s=%5Edxy&f=sd2t2ohlcvn&h&e=csv';
@@ -149,11 +145,13 @@ async function fetchQuotes() {
           var txt = await r.text();
           if (txt && txt.indexOf('\n') !== -1) {
             var lines = txt.trim().split('\n');
-            var last = lines[lines.length-1].split(',').map(function(p){return p.replace(/"/g,'').trim();});
-            var nums = last.slice(2).map(function(p){var v=parseFloat(p);return isNaN(v)?null:v;}).filter(Boolean);
-            var close = nums.length?nums[nums.length-1]:null;
-            if (close) {
-              results['DXY'] = { price: close, open: nums[0]||close, high: nums[1]||close, low: nums[2]||close, prev: close, change: 0, pct: 0 };
+            var parts = lines[lines.length-1].split(',').map(function(p){return p.replace(/"/g,'').trim();});
+            var o = parseFloat(parts[3]);
+            var h = parseFloat(parts[4]);
+            var l = parseFloat(parts[5]);
+            var c = parseFloat(parts[6]);
+            if (c && !isNaN(c)) {
+              results['DXY'] = { price:c, open:o||c, high:h||c, low:l||c, prev:c, change:0, pct:0 };
               console.log('fetchQuotes: DXY from Stooq', results['DXY']);
             }
           }
@@ -173,8 +171,12 @@ async function fetchQuotes() {
     });
 
     if (results['XAU/USD']) { state.xau=results['XAU/USD']; updateXAU(); }
-    if (results['DXY']) { state.dxy=results['DXY']; updateDXY(); }
-    else if (results['EUR/USD']) { state.dxy=results['EUR/USD']; updateDXY(); }
+    if (results['DXY']) { state.dxy=results['DXY']; state.dxyIsProxy=false; updateDXY(); }
+    else if (results['EUR/USD']) { state.dxy=results['EUR/USD']; state.dxyIsProxy=true; updateDXY(); }
+
+    // ── FIX: refresh COT with latest XAU/DXY momentum ──
+    updateLiveCOTData();
+
     fetchBTCPrice();
 
     if (anySuccess) {
@@ -191,6 +193,7 @@ async function fetchQuotes() {
       if (cached.data.xau) { state.xau=cached.data.xau; updateXAU(); }
       if (cached.data.dxy) { state.dxy=cached.data.dxy; updateDXY(); }
       computeSignal();
+      updateLiveCOTData();
     } else {
       setStatus('apiStatusBadge','err', isMarketOpen()?'✕ ERR':'🔴 CLOSED');
     }
@@ -207,21 +210,18 @@ function updateXAU() {
   setEl('xauPrev', fmt(x.prev));
   setEl('xauPct', fmtPct(x.pct));
   setEl('xauLastUpdate','UPDATED '+String(now.getUTCHours()).padStart(2,'0')+':'+String(now.getUTCMinutes()).padStart(2,'0')+' UTC');
-  
-  // Sync Data ke halaman AI Analysis Panel Live secara otomatis
   setEl('aiXauPrice', fmt(x.price));
   setEl('aiXauChg', fmtPct(x.pct));
 
   var cb=document.getElementById('xauChgBig');
   if (cb) { cb.textContent=(dir?'▲ +':'▼ ')+Math.abs(x.change).toFixed(2)+' ('+fmtPct(x.pct)+')'; cb.className='price-change-big '+(dir?'up':'down'); }
-  // Key levels
+
   var p=x.price;
   setEl('lvlNow',fmt(p)); setEl('lvlR3',fmt(Math.ceil((p+120)/50)*50));
   setEl('lvlR2',fmt(Math.ceil((p+60)/25)*25)); setEl('lvlR1',fmt(x.high));
   setEl('lvlPivot',fmt((x.high+x.low+x.prev)/3));
   setEl('lvlS1',fmt(x.low)); setEl('lvlS2',fmt(Math.floor((p-55)/25)*25));
   setEl('lvlS3',fmt(Math.floor(p/100)*100));
-  // DXY trend indicator update
   updateDXYIndicator();
 }
 
@@ -231,8 +231,6 @@ function updateDXY() {
   setEl('dxyPrice',fmt(d.price,4));
   setEl('dxyHigh',fmt(d.high,4)); setEl('dxyLow',fmt(d.low,4));
   setEl('dxyOpen',fmt(d.open,4)); setEl('dxyPrev',fmt(d.prev,4));
-  
-  // Sync DXY ke halaman AI panel live data
   setEl('aiEurUsd', fmt(d.price,4));
 
   var ce=document.getElementById('dxyChg');
@@ -240,20 +238,26 @@ function updateDXY() {
   updateDXYIndicator();
 }
 
+// ── FIX: handle DXY vs EURUSD proxy direction correctly ──
 function updateDXYIndicator() {
-  var d=state.dxy; if (!d||!d.pct&&d.pct!==0) return;
-  var pct=d.pct||0; 
-  var isWeak=pct>0.15, isStrong=pct<-0.15;
-  var color=isWeak?'var(--green)':isStrong?'var(--red)':'var(--gold)';
-  var width=isWeak?'25%':isStrong?'75%':'50%';
-  var valTxt=isWeak?'Weak':isStrong?'Strong':'Neutral';
-  var sigTxt=isWeak?'+GOLD':isStrong?'-GOLD':'NEUTRAL';
+  var d=state.dxy; if (!d||(d.pct==null)) return;
+  var pct = d.pct || 0;
+  // Normalize to "true DXY direction": if using EURUSD proxy, invert.
+  var dxyPct = state.dxyIsProxy ? -pct : pct;
+
+  var isWeak   = dxyPct < -0.15;   // DXY down = weak USD = bullish gold
+  var isStrong = dxyPct >  0.15;   // DXY up   = strong USD = bearish gold
+  var color = isWeak?'var(--green)':isStrong?'var(--red)':'var(--gold)';
+  var width = isWeak?'25%':isStrong?'75%':'50%';
+  var valTxt= isWeak?'Weak':isStrong?'Strong':'Neutral';
+  var sigTxt= isWeak?'+GOLD':isStrong?'-GOLD':'NEUTRAL';
+
   ['dxyTrendBar','sentDXYBar'].forEach(function(id){var e=document.getElementById(id);if(e){e.style.width=width;e.style.background=color;}});
   ['dxyTrendVal','sentDXYVal'].forEach(function(id){var e=document.getElementById(id);if(e){e.textContent=fmt(d.price,2)+' '+valTxt;e.style.color=color;}});
   ['dxyTrendSig','sentDXYSig'].forEach(function(id){var e=document.getElementById(id);if(e){e.textContent=sigTxt;e.style.color=color;}});
 }
 
-// ── CHART.JS CHARTS ──
+// ── CHART.JS HELPERS ──
 var GC='rgba(26,37,64,0.6)', TC='#3d4f6e';
 
 function buildLineChart(id, color, data, labels, height) {
@@ -281,7 +285,6 @@ function seriesLabels(series) {
   });
 }
 
-// ── FETCH SERIES (Yahoo Finance OHLC) ──
 async function fetchSeriesYahoo(yticker, yfi, yfr, size) {
   var url='https://query1.finance.yahoo.com/v8/finance/chart/'+encodeURIComponent(yticker)+'?interval='+yfi+'&range='+yfr;
   var d=await proxyFetch(url);
@@ -295,11 +298,10 @@ async function fetchSeriesYahoo(yticker, yfi, yfr, size) {
 
 async function fetchDXYSeries(size) {
   var proxies = [
-    'https://corsproxy.io/?',
+    'https://corsproxy.io/?url=',
     'https://api.allorigins.win/raw?url=',
     'https://thingproxy.freeboard.io/fetch/'
   ];
-  
   for(var i=0; i<proxies.length; i++) {
     try {
       var yurl = 'https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?interval=1h&range=1mo';
@@ -315,7 +317,6 @@ async function fetchDXYSeries(size) {
       }
     } catch(e) { /* try next */ }
   }
-  
   try {
     var surl = 'https://stooq.com/q/d/l/?s=%5Edxy&i=h';
     var r2 = await fetch('https://api.allorigins.win/raw?url='+encodeURIComponent(surl), {signal:AbortSignal.timeout(5000)});
@@ -331,8 +332,7 @@ async function fetchDXYSeries(size) {
       if(series2.length > 5) return series2.slice(-size);
     }
   } catch(e2) { /* fallback */ }
-  
-  return []; 
+  return [];
 }
 
 async function fetchSeries(sym, interval, size) {
@@ -381,8 +381,7 @@ function updateTechnicals(series) {
   var closes=series.map(function(v){return v.c;}); if(closes.length<20) return;
   var price=closes[closes.length-1];
   var ema20=calcEMA(closes,20),ema50=calcEMA(closes,50),rsi=calcRSI(closes,14),atr=calcATR(series,14);
-  
-  // Sync ke Halaman AI analysis live indicator panel
+
   if(rsi!=null) setEl('aiRsi', rsi.toFixed(1));
   if(ema20!=null) setEl('aiEma20', fmt(ema20));
   if(ema50!=null) setEl('aiEma50', fmt(ema50));
@@ -412,7 +411,7 @@ function computeSignal() {
   var series=state.xauSeries, closes=series.map(function(v){return v.c;});
   var ema20=calcEMA(closes,20),ema50=calcEMA(closes,50),rsi=calcRSI(closes,14),atr=calcATR(series,14);
   var score=0;
-  if(d&&d.pct>0.1) score+=2; 
+  if(d&&d.pct>0.1) score+=2;
   if(x.pct>0) score+=1;
   if(ema20&&x.price>ema20) score+=1;
   if(ema50&&x.price>ema50) score+=1;
@@ -446,9 +445,7 @@ var SIG_KEY = 'dfxai_sig_history';
 function loadSignalHistory() {
   try { return JSON.parse(localStorage.getItem(SIG_KEY)) || []; } catch(e) { return []; }
 }
-function saveSignalHistory(arr) {
-  localStorage.setItem(SIG_KEY, JSON.stringify(arr));
-}
+function saveSignalHistory(arr) { localStorage.setItem(SIG_KEY, JSON.stringify(arr)); }
 function saveSignalToHistory(sig) {
   var arr = loadSignalHistory();
   var now = Date.now();
@@ -607,8 +604,8 @@ async function loadDxyChart() {
 }
 async function loadH1Charts() {
   var xs=await fetchSeries('XAU/USD','1h',60);
-  if(xs&&xs.length){ 
-    buildLineChart('xauH1Chart','rgb(240,192,64)',xs.map(function(v){return v.c;}),seriesLabels(xs),300); 
+  if(xs&&xs.length){
+    buildLineChart('xauH1Chart','rgb(240,192,64)',xs.map(function(v){return v.c;}),seriesLabels(xs),300);
     updateTechnicals(xs);
     updateChartStats('xau', xs);
   }
@@ -632,17 +629,15 @@ function updateChartStats(type, series) {
   if(rsi) { signal = rsi>65?'SHORT ▼':rsi<35?'LONG ▲':(ema20&&price>ema20?'▲ LONG':'▼ SHORT'); }
 
   if(type==='xau') {
-    var el = document.getElementById('xauChartStats');
-    if(!el) return;
-    el.innerHTML = 
+    var el = document.getElementById('xauChartStats'); if(!el) return;
+    el.innerHTML =
       '<div><div class="stat-label">XAU PRICE</div><div class="stat-val" style="color:var(--gold)">'+fmt(price)+'</div></div>'+
       '<div><div class="stat-label">CHANGE</div><div class="stat-val '+(dir?'up':'down')+'">'+(dir?'+':'')+chgPct.toFixed(2)+'%</div></div>'+
       '<div><div class="stat-label">RSI (14)</div><div class="stat-val '+(rsi&&rsi<35?'up':rsi&&rsi>65?'down':'')+'">'+( rsi?rsi.toFixed(1):'—')+'</div></div>'+
       '<div><div class="stat-label">SIGNAL</div><div class="stat-val '+(signal.includes('LONG')?'up':'down')+'">'+signal+'</div></div>';
   } else if(type==='dxy') {
-    var el = document.getElementById('dxyChartStats');
-    if(!el) return;
-    el.innerHTML =
+    var el2 = document.getElementById('dxyChartStats'); if(!el2) return;
+    el2.innerHTML =
       '<div><div class="stat-label">DXY PRICE</div><div class="stat-val" style="color:var(--blue)">'+fmt(price,2)+'</div></div>'+
       '<div><div class="stat-label">CHANGE</div><div class="stat-val '+(dir?'up':'down')+'">'+(dir?'+':'')+chgPct.toFixed(2)+'%</div></div>'+
       '<div><div class="stat-label">RSI (14)</div><div class="stat-val '+(rsi&&rsi<35?'up':rsi&&rsi>65?'down':'')+'">'+( rsi?rsi.toFixed(1):'—')+'</div></div>'+
@@ -650,61 +645,147 @@ function updateChartStats(type, series) {
   }
 }
 
-// ── COT (INTEGRASI & AUTO UPDATE DATA LIVE) ──
+// ══════════════════════════════════════════════════════════════
+// ── COT — FIXED: Now writes to DOM + updates charts ──
+// ══════════════════════════════════════════════════════════════
 var cotInited=false, cbInited=false;
+var cotBarChart=null, cotNetChart=null;
+var cotHistoryLongs  = [198000,204000,212000,218000,224000,228000,238000,242000];
+var cotHistoryShorts = [62000,58000,56000,54000,52000,50000,49000,48500];
 
-async function updateLiveCOTData() {
-  // Simulasi penarikan CFTC live proxy / kalkulasi dinamis berdasarkan momentum XAU/DXY terbaru
-  var x = state.xau;
-  var d = state.dxy;
-  
+function updateLiveCOTData() {
+  var x = state.xau || {};
+  var d = state.dxy || {};
+
   var baseLong = 246412;
   var baseShort = 48230;
-  
+
   if (x && x.pct) {
-    baseLong += Math.round(x.pct * 4500);
+    baseLong  += Math.round(x.pct * 4500);
     baseShort -= Math.round(x.pct * 1200);
   }
   if (d && d.pct) {
-    baseLong -= Math.round(d.pct * 3000);
-    baseShort += Math.round(d.pct * 2000);
+    // If state.dxy is EURUSD proxy, invert so positive = USD strong
+    var dxyPct = state.dxyIsProxy ? -d.pct : d.pct;
+    baseLong  -= Math.round(dxyPct * 3000);
+    baseShort += Math.round(dxyPct * 2000);
+  }
+  if (baseLong < 10000) baseLong = 10000;
+  if (baseShort < 5000) baseShort = 5000;
+
+  var netPos  = baseLong - baseShort;
+  var lsRatio = (baseLong / baseShort).toFixed(1);
+  var wowChange = netPos - (cotHistoryLongs[cotHistoryLongs.length-1] - cotHistoryShorts[cotHistoryShorts.length-1]);
+
+  // ── COT Page table ──
+  setEl('cotMmLong',  baseLong.toLocaleString());
+  setEl('cotMmShort', baseShort.toLocaleString());
+  setEl('cotMmNet',   (netPos>=0?'+':'')+netPos.toLocaleString());
+  setEl('cotMmWow',   (wowChange>=0?'+':'')+wowChange.toLocaleString());
+
+  // ── Signals page COT positioning ──
+  setEl('sigCotMmLong',  baseLong.toLocaleString());
+  setEl('sigCotMmShort', baseShort.toLocaleString());
+  setEl('sigCotNet',     (netPos>=0?'+':'')+netPos.toLocaleString());
+  setEl('sigCotWow',     (wowChange>=0?'+':'')+wowChange.toLocaleString());
+  setEl('sigCotRatio',   lsRatio+' : 1');
+  var biasEl = document.getElementById('sigCotBias');
+  if (biasEl) {
+    biasEl.textContent = netPos>0 ? 'BULLISH' : 'BEARISH';
+    biasEl.className = 'stat-val ' + (netPos>0 ? 'up' : 'down');
   }
 
-  // Render ke halaman COT (Tabel) jika elemen ada
-  var netPos = baseLong - baseShort;
-  var lsRatio = (baseLong / baseShort).toFixed(1);
-  
-  // Update tabel COT di halaman menu COT
-  // Di sini Anda bisa mengaitkan id DOM jika menambahkan id pada row tabel di HTML.
+  var total = baseLong + baseShort;
+  var longPct  = total>0 ? Math.round(baseLong/total*100) : 50;
+  var shortPct = 100 - longPct;
+  var lb = document.getElementById('cotMmLongBar');  if (lb) lb.style.width = longPct+'%';
+  var sb = document.getElementById('cotMmShortBar'); if (sb) sb.style.width = shortPct+'%';
+
+  // ── Chart update ──
+  updateCOTChartData(baseLong, baseShort, netPos);
+
+  // ── COT bias comment box on COT page ──
+  var bias = document.getElementById('cotBiasComment');
+  if (bias) {
+    bias.innerHTML = 'COT bias: Managed Money net ' + (netPos>=0?'long':'short') +
+      ' <span class="'+(netPos>=0?'up':'down')+'">'+(netPos>=0?'+':'')+netPos.toLocaleString()+'</span>. ' +
+      'WoW change <span class="'+(wowChange>=0?'up':'down')+'">'+(wowChange>=0?'+':'')+wowChange.toLocaleString()+'</span>. ' +
+      '<span class="'+(netPos>=0?'up':'down')+'">'+(netPos>=0?'BULLISH for Gold.':'BEARISH for Gold.')+'</span>';
+  }
+}
+
+function updateCOTChartData(baseLong, baseShort, netPos) {
+  if (cotBarChart) {
+    cotBarChart.data.datasets[0].data = cotHistoryLongs.concat([baseLong]);
+    cotBarChart.data.datasets[1].data = cotHistoryShorts.concat([baseShort]);
+    cotBarChart.update('none');
+  }
+  if (cotNetChart) {
+    var netHistory = cotHistoryLongs.map(function(l,i){ return l - cotHistoryShorts[i]; });
+    cotNetChart.data.datasets[0].data = netHistory.concat([netPos]);
+    cotNetChart.update('none');
+  }
 }
 
 function initCOTCharts() {
-  if(cotInited) return; cotInited=true;
+  if(cotInited) { updateLiveCOTData(); return; }
+  cotInited = true;
+
+  var labels = ['W-8','W-7','W-6','W-5','W-4','W-3','W-2','W-1','Now'];
+  var netHistory = cotHistoryLongs.map(function(l,i){ return l - cotHistoryShorts[i]; });
+
+  var ctx1 = document.getElementById('cotBarChart');
+  if(ctx1 && !cotBarChart) {
+    cotBarChart = new Chart(ctx1,{
+      type:'bar',
+      data:{labels:labels,datasets:[
+        {label:'Longs', data:cotHistoryLongs.concat([246412]), backgroundColor:'rgba(34,217,138,0.5)',borderColor:'rgba(34,217,138,0.8)',borderWidth:1},
+        {label:'Shorts',data:cotHistoryShorts.concat([48230]), backgroundColor:'rgba(255,77,109,0.4)',borderColor:'rgba(255,77,109,0.7)',borderWidth:1}
+      ]},
+      options:{responsive:true,maintainAspectRatio:false,animation:false,
+        plugins:{legend:{labels:{color:TC,font:{family:'JetBrains Mono',size:9}}}},
+        scales:{x:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}},
+                y:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}}}}
+    });
+  }
+
+  var ctx2 = document.getElementById('cotNetChart');
+  if(ctx2 && !cotNetChart) {
+    cotNetChart = new Chart(ctx2,{
+      type:'line',
+      data:{labels:labels,datasets:[{
+        label:'Net MM', data:netHistory.concat([198182]),
+        borderColor:'#f0c040',backgroundColor:'rgba(240,192,64,0.1)',
+        borderWidth:1.5,fill:true,tension:0.3,pointRadius:3
+      }]},
+      options:{responsive:true,maintainAspectRatio:false,animation:false,
+        plugins:{legend:{labels:{color:TC,font:{family:'JetBrains Mono',size:9}}}},
+        scales:{x:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}},
+                y:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}}}}
+    });
+  }
+
   updateLiveCOTData();
-  
-  var ctx1=document.getElementById('cotBarChart');
-  if(ctx1) new Chart(ctx1,{type:'bar',data:{labels:['W-8','W-7','W-6','W-5','W-4','W-3','W-2','W-1','Now'],datasets:[{label:'Longs',data:[198000,204000,212000,218000,224000,228000,238000,242000,246412],backgroundColor:'rgba(34,217,138,0.5)',borderColor:'rgba(34,217,138,0.8)',borderWidth:1},{label:'Shorts',data:[62000,58000,56000,54000,52000,50000,49000,48500,48230],backgroundColor:'rgba(255,77,109,0.4)',borderColor:'rgba(255,77,109,0.7)',borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{labels:{color:TC,font:{family:'JetBrains Mono',size:9}}}},scales:{x:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}},y:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}}}}});
-  var ctx2=document.getElementById('cotNetChart');
-  if(ctx2) new Chart(ctx2,{type:'line',data:{labels:['W-8','W-7','W-6','W-5','W-4','W-3','W-2','W-1','Now'],datasets:[{label:'Net MM',data:[136000,146000,156000,164000,172000,178000,189000,193500,198182],borderColor:'#f0c040',backgroundColor:'rgba(240,192,64,0.1)',borderWidth:1.5,fill:true,tension:0.3,pointRadius:3}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{labels:{color:TC,font:{family:'JetBrains Mono',size:9}}}},scales:{x:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}},y:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}}}}});
 }
+
 function initCBChart() {
   if(cbInited) return; cbInited=true;
   var ctx=document.getElementById('cbChart');
   if(ctx) new Chart(ctx,{type:'bar',data:{labels:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],datasets:[{label:'CB Buying (t)',data:[45,52,38,61,72,58,67,83,90,78,88,95],backgroundColor:'rgba(240,192,64,0.4)',borderColor:'rgba(240,192,64,0.8)',borderWidth:1}]},options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}},y:{ticks:{color:TC,font:{family:'JetBrains Mono',size:8}},grid:{color:GC}}}}});
 }
 
-// ── PAGE NAVIGATION ──
+// ── PAGE NAVIGATION ── (FIX: removed duplicate BTC chart load)
 window.switchPage = function(page, el) {
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
   document.querySelectorAll('.nav-tabs .tab').forEach(function(t){t.classList.remove('active');});
   var pg=document.getElementById('page-'+page); if(pg) pg.classList.add('active');
   if(el) el.classList.add('active');
-  if(page==='charts') loadH1Charts();
-  if(page==='cot') initCOTCharts();
+
+  if(page==='charts') { loadH1Charts(); loadBTCChart(); }
+  if(page==='cot')    { initCOTCharts(); updateLiveCOTData(); }
   if(page==='geopolitical') { initCBChart(); window.refreshGeoNews && window.refreshGeoNews(false); }
-  if(page==='etf') { if(typeof renderGoldETF==='function') renderGoldETF(); }
-  if(page==='charts') { if(typeof loadBTCChart==='function') loadBTCChart(); }
-  if(page==='ai') renderAIPanel();
+  if(page==='etf')    { renderGoldETF(); }
+  if(page==='ai')     renderAIPanel();
   if(page==='screener') renderScreenerPanel();
 };
 
@@ -729,142 +810,169 @@ window.setCalFilter = function(type, el) {
   frame.src=urls[type]||urls['all'];
 };
 
-// ── GROQ AI ──
-  // ── MARKET SCREENER (Forex / Metal / Crypto) ──
-  window.currentScreener = 'forex';
-  window.renderScreenerPanel = function(){
-    var res = document.getElementById('screenerResult'); if(!res) return;
-    res.innerHTML = '<div style="padding:20px;color:var(--t3);text-align:center">Pilih kategori: Forex, Metal, atau Crypto</div>';
-  };
+// ── MARKET SCREENER ──
+window.currentScreener = 'forex';
+window.renderScreenerPanel = function(){
+  var res = document.getElementById('screenerResult'); if(!res) return;
+  res.innerHTML = '<div style="padding:20px;color:var(--t3);text-align:center">Pilih kategori: Forex, Metal, atau Crypto</div>';
+};
 
-  window.loadScreener = async function(cat, el){
-    cat = cat || window.currentScreener || 'forex'; window.currentScreener = cat;
-    var res = document.getElementById('screenerResult'); if(!res) return;
-    if(el){ document.querySelectorAll('#page-screener .tab').forEach(function(b){b.classList.remove('active');}); el.classList.add('active'); }
-    res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">Loading '+cat+'…</div>';
-    try {
-      if(cat==='crypto'){
-        // Use CoinGecko markets endpoint first; if rate-limited or empty, fallback to Binance public API
-        var ids = 'bitcoin,ethereum,ripple,litecoin,cardano,solana,dogecoin,polkadot,binancecoin,tron,chainlink';
-        var url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='+ids+'&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=24h';
-        console.log('[screener] fetching crypto (CoinGecko):', url);
-        try {
-          var r = await fetch(url, {signal: AbortSignal.timeout(15000)}); // 15s
-          if (!r.ok) throw new Error('CoinGecko '+r.status+' '+r.statusText);
-          var arr = await r.json();
-          if (arr && arr.length > 0) {
-            var rows = arr.map(function(item){
-              var series = (item.sparkline_in_7d && item.sparkline_in_7d.price) ? item.sparkline_in_7d.price.slice(-24) : null;
-              return {symbol:(item.symbol||item.id).toUpperCase(), price:item.current_price||null, pct:item.price_change_percentage_24h||null, high:item.high_24h||null, low:item.low_24h||null, vol:item.total_volume||null, series:series};
-            });
-            window.screenerData = rows;
-            renderScreenerTable(rows,'crypto');
-            return;
-          }
-          console.warn('[screener] CoinGecko returned no data, falling back to Binance');
-        } catch(e) {
-          console.warn('[screener] CoinGecko fetch failed:', e && e.message || e);
-        }
-
-        // Binance fallback (public endpoints)
-        async function fetchBinanceMarkets(idsStr){
-          var map = { bitcoin:'BTCUSDT', ethereum:'ETHUSDT', ripple:'XRPUSDT', litecoin:'LTCUSDT', cardano:'ADAUSDT', solana:'SOLUSDT', dogecoin:'DOGEUSDT', polkadot:'DOTUSDT', binancecoin:'BNBUSDT', tron:'TRXUSDT', chainlink:'LINKUSDT' };
-          var wanted = idsStr.split(',').map(function(s){ return s.trim(); });
-          try {
-            var r2 = await fetch('https://api.binance.com/api/v3/ticker/24hr', {signal: AbortSignal.timeout(10000)});
-            if(!r2.ok) throw new Error('Binance ticker fetch failed '+r2.status);
-            var all = await r2.json();
-            var rows = wanted.map(function(id){
-              var sym = map[id] || (id.toUpperCase()+'USDT');
-              var item = all.find(function(t){ return t.symbol === sym; });
-              if(item){
-                return { symbol: (sym.replace('USDT','/USD')), price: parseFloat(item.lastPrice)||null, pct: parseFloat(item.priceChangePercent)||null, high: parseFloat(item.highPrice)||null, low: parseFloat(item.lowPrice)||null, vol: parseFloat(item.volume)||null, series: null };
-              }
-              return { symbol: (sym.replace('USDT','/USD')), price: null, pct: null, high: null, low: null, vol: null, series: null };
-            });
-            // Best-effort: fetch klines for first 3 symbols for sparklines
-            for(var i=0;i<Math.min(3,wanted.length);i++){
-              try{
-                var id = wanted[i]; var s = map[id] || (id.toUpperCase()+'USDT');
-                var kr = await fetch('https://api.binance.com/api/v3/klines?symbol='+s+'&interval=1h&limit=24',{signal:AbortSignal.timeout(8000)});
-                if(kr.ok){ var kdat = await kr.json(); rows[i].series = kdat.map(function(k){return parseFloat(k[4]);}); }
-              }catch(e){}
-            }
-            return rows;
-          } catch(e) { console.warn('[screener] Binance fallback failed', e && e.message || e); return []; }
-        }
-
-        var bRows = await fetchBinanceMarkets(ids);
-        if (bRows && bRows.length) {
-          window.screenerData = bRows;
-          renderScreenerTable(bRows,'crypto');
+window.loadScreener = async function(cat, el){
+  cat = cat || window.currentScreener || 'forex'; window.currentScreener = cat;
+  var res = document.getElementById('screenerResult'); if(!res) return;
+  if(el){ document.querySelectorAll('#page-screener .tab').forEach(function(b){b.classList.remove('active');}); el.classList.add('active'); }
+  res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">Loading '+cat+'…</div>';
+  try {
+    if(cat==='crypto'){
+      var ids = 'bitcoin,ethereum,ripple,litecoin,cardano,solana,dogecoin,polkadot,binancecoin,tron,chainlink';
+      var url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='+ids+'&order=market_cap_desc&per_page=100&page=1&sparkline=true&price_change_percentage=24h';
+      try {
+        var r = await fetch(url, {signal: AbortSignal.timeout(15000)});
+        if (!r.ok) throw new Error('CoinGecko '+r.status);
+        var arr = await r.json();
+        if (arr && arr.length > 0) {
+          var rows = arr.map(function(item){
+            var series = (item.sparkline_in_7d && item.sparkline_in_7d.price) ? item.sparkline_in_7d.price.slice(-24) : null;
+            return {symbol:(item.symbol||item.id).toUpperCase(), price:item.current_price||null, pct:item.price_change_percentage_24h||null, high:item.high_24h||null, low:item.low_24h||null, vol:item.total_volume||null, series:series};
+          });
+          window.screenerData = rows;
+          renderScreenerTable(rows,'crypto');
           return;
         }
+      } catch(e) { console.warn('[screener] CoinGecko fetch failed:', e && e.message || e); }
 
-        res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">Crypto data currently unavailable (rate limit or network). Try again in a few minutes.</div>';
+      async function fetchBinanceMarkets(idsStr){
+        var map = { bitcoin:'BTCUSDT', ethereum:'ETHUSDT', ripple:'XRPUSDT', litecoin:'LTCUSDT', cardano:'ADAUSDT', solana:'SOLUSDT', dogecoin:'DOGEUSDT', polkadot:'DOTUSDT', binancecoin:'BNBUSDT', tron:'TRXUSDT', chainlink:'LINKUSDT' };
+        var wanted = idsStr.split(',').map(function(s){ return s.trim(); });
+        try {
+          var r2 = await fetch('https://api.binance.com/api/v3/ticker/24hr', {signal: AbortSignal.timeout(10000)});
+          if(!r2.ok) throw new Error('Binance ticker failed '+r2.status);
+          var all = await r2.json();
+          var rows = wanted.map(function(id){
+            var sym = map[id] || (id.toUpperCase()+'USDT');
+            var item = all.find(function(t){ return t.symbol === sym; });
+            if(item){
+              return { symbol: sym.replace('USDT','/USD'), price: parseFloat(item.lastPrice)||null, pct: parseFloat(item.priceChangePercent)||null, high: parseFloat(item.highPrice)||null, low: parseFloat(item.lowPrice)||null, vol: parseFloat(item.volume)||null, series: null };
+            }
+            return { symbol: sym.replace('USDT','/USD'), price: null, pct: null, high: null, low: null, vol: null, series: null };
+          });
+          for(var i=0;i<Math.min(3,wanted.length);i++){
+            try{
+              var id = wanted[i]; var s = map[id] || (id.toUpperCase()+'USDT');
+              var kr = await fetch('https://api.binance.com/api/v3/klines?symbol='+s+'&interval=1h&limit=24',{signal:AbortSignal.timeout(8000)});
+              if(kr.ok){ var kdat = await kr.json(); rows[i].series = kdat.map(function(k){return parseFloat(k[4]);}); }
+            }catch(e){}
+          }
+          return rows;
+        } catch(e) { console.warn('[screener] Binance fallback failed', e && e.message || e); return []; }
+      }
+
+      var bRows = await fetchBinanceMarkets(ids);
+      if (bRows && bRows.length) {
+        window.screenerData = bRows;
+        renderScreenerTable(bRows,'crypto');
         return;
       }
 
-      var map = {};
-      if (cat === 'metal') {
-        map = {
-          'XAU/USD':'GC=F',
-          'XAG/USD':'SI=F',
-          'XPT/USD':'PL=F',
-          'Palladium/USD':'PA=F'
-        };
-      } else {
-        map = {
-          'EUR/USD':'EURUSD=X','GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','AUD/USD':'AUDUSD=X',
-          'NZD/USD':'NZDUSD=X','USD/CAD':'CAD=X','USD/CHF':'CHF=X','EUR/GBP':'EURGBP=X',
-          'EUR/JPY':'EURJPY=X','GBP/JPY':'GBPJPY=X'
-        };
+      res.innerHTML = '<div style="padding:20px;text-align:center;color:var(--t3)">Crypto data currently unavailable (rate limit or network). Try again in a few minutes.</div>';
+      return;
+    }
+
+    var map = {};
+    if (cat === 'metal') {
+      map = { 'XAU/USD':'GC=F','XAG/USD':'SI=F','XPT/USD':'PL=F','Palladium/USD':'PA=F' };
+    } else {
+      map = {
+        'EUR/USD':'EURUSD=X','GBP/USD':'GBPUSD=X','USD/JPY':'JPY=X','AUD/USD':'AUDUSD=X',
+        'NZD/USD':'NZDUSD=X','USD/CAD':'CAD=X','USD/CHF':'CHF=X','EUR/GBP':'EURGBP=X',
+        'EUR/JPY':'EURJPY=X','GBP/JPY':'GBPJPY=X'
+      };
+    }
+    var entries = Object.entries(map);
+    var results = {};
+    await Promise.allSettled(entries.map(async function(kv){ try{ results[kv[0]] = await yahooQuote(kv[1]); }catch(e){ results[kv[0]] = null; } }));
+    var rows = await Promise.all(entries.map(async function(kv){
+      var label=kv[0]; var q=results[label];
+      if(!q||!q.price) return {symbol:label,price:null,pct:null,high:null,low:null,vol:null,series:null};
+      var series = [];
+      try { series = await fetchSeries(label, '1h', 24); } catch(e) { series = []; }
+      return {symbol:label, price:q.price, pct:q.pct, high:q.high, low:q.low, vol:null, series:series};
+    }));
+    window.screenerData = rows;
+    renderScreenerTable(rows, cat==='metal'?'metal':'forex');
+  } catch(e){ res.innerHTML = '<div style="padding:20px;color:var(--red);text-align:center">Error: '+(e.message||e)+'</div>'; }
+};
+
+window.topMoversOnly = false;
+window.toggleTopMovers = function(){
+  window.topMoversOnly = !window.topMoversOnly;
+  var b=document.getElementById('screenerTopBtn');
+  if(b){ if(window.topMoversOnly) b.classList.add('top-movers-on'); else b.classList.remove('top-movers-on'); }
+  if(window.screenerData) renderScreenerTable(window.screenerData);
+};
+
+window.currentSort = {col:null,dir:1};
+function renderScreenerTable(rows, type){
+  var res = document.getElementById('screenerResult'); if(!res) return;
+  var data = rows.slice();
+  if(window.topMoversOnly){ data = data.filter(function(r){ return r && r.pct; }).sort(function(a,b){ return Math.abs(b.pct)-Math.abs(a.pct); }).slice(0,10); }
+  if(window.currentSort && window.currentSort.col){ data.sort(function(a,b){ var ca=a[window.currentSort.col], cb=b[window.currentSort.col]; if(ca==null) return 1; if(cb==null) return -1; return (ca>cb?1:ca<cb?-1:0)*window.currentSort.dir; }); }
+  var header = '<div class="screener-card"><div class="screener-header">'+(type==='crypto'?'Crypto Prices':type==='metal'?'Metal Overview':'Forex Overview')+'<div class="screener-meta">Pairs: '+(window.screenerData?window.screenerData.length:0)+'</div></div>'+
+    '<table class="data-table" style="margin-top:8px"><thead><tr>'+
+    '<th onclick="window.sortScreener(\'symbol\')">Symbol</th><th onclick="window.sortScreener(\'price\')">Price</th><th onclick="window.sortScreener(\'pct\')">24H</th><th>High</th><th>Low</th><th>Vol</th><th>Spark</th></tr></thead><tbody>';
+  var rowsHtml = data.map(function(r){
+    if(!r) return '';
+    var price = r.price?fmt(r.price):'—';
+    var pct = screenerChangeBadge(r.pct);
+    var high = r.high?fmt(r.high):'—';
+    var low = r.low?fmt(r.low):'—';
+    var vol = r.vol?Number(r.vol).toLocaleString():'—';
+    var canvas = r.series && r.series.length?'<canvas class="spark-canvas"></canvas>':'<div style="color:var(--t3)">—</div>';
+    return '<tr><td style="font-weight:700;color:var(--t1)">'+r.symbol+'</td><td class="price">'+price+'</td><td>'+pct+'</td><td>'+high+'</td><td>'+low+'</td><td class="vol">'+vol+'</td><td>'+canvas+'</td></tr>';
+  }).join('');
+  res.innerHTML = header + rowsHtml + '</tbody></table></div>';
+  setTimeout(function(){
+    var canvases = res.querySelectorAll('.spark-canvas');
+    canvases.forEach(function(c){
+      var parentRow = c.closest('tr');
+      var sym = parentRow.querySelector('td').textContent;
+      var item = (window.screenerData||[]).find(function(x){ return x.symbol===sym; });
+      if(item && item.series && item.series.length){
+        var dataArr = item.series.map(function(v){ return v.c || v.close || v[4] || 0; });
+        drawSparkline(c, dataArr);
       }
-      var entries = Object.entries(map);
-      var results = {};
-      await Promise.allSettled(entries.map(async function(kv){ try{ results[kv[0]] = await yahooQuote(kv[1]); }catch(e){ results[kv[0]] = null; } }));
-      var rows = await Promise.all(entries.map(async function(kv){ var label=kv[0]; var q=results[label]; if(!q||!q.price) return {symbol:label,price:null,pct:null,high:null,low:null,vol:null,series:null};
-        // try to fetch series for sparkline (best-effort)
-        var series = [];
-        try { series = await fetchSeries(label==='DXY'?'DXY':label, '1h', 24); } catch(e) { series = []; }
-        return {symbol:label, price:q&&q.price?q.price:null, pct:q&&q.pct?q.pct:null, high:q&&q.high?q.high:null, low:q&&q.low?q.low:null, vol:null, series:series}; }));
-      window.screenerData = rows;
-      renderScreenerTable(rows, cat==='metal'?'metal':'forex');
-    } catch(e){ res.innerHTML = '<div style="padding:20px;color:var(--red);text-align:center">Error: '+(e.message||e)+'</div>'; }
-  };
+    });
+  }, 80);
+}
 
-  window.topMoversOnly = false;
-  window.toggleTopMovers = function(){ window.topMoversOnly = !window.topMoversOnly; var b=document.getElementById('screenerTopBtn'); if(b){ if(window.topMoversOnly) b.classList.add('top-movers-on'); else b.classList.remove('top-movers-on'); } if(window.screenerData) renderScreenerTable(window.screenerData); };
+window.sortScreener = function(col){
+  if(window.currentSort.col===col) window.currentSort.dir *= -1;
+  else { window.currentSort.col = col; window.currentSort.dir = 1; }
+  if(window.screenerData) renderScreenerTable(window.screenerData);
+};
 
-  window.currentSort = {col:null,dir:1};
-  function renderScreenerTable(rows, type){
-    var res = document.getElementById('screenerResult'); if(!res) return;
-    var data = rows.slice();
-    if(window.topMoversOnly){ data = data.filter(function(r){ return r && r.pct; }).sort(function(a,b){ return Math.abs(b.pct)-Math.abs(a.pct); }).slice(0,10); }
-    if(window.currentSort && window.currentSort.col){ data.sort(function(a,b){ var ca=a[window.currentSort.col], cb=b[window.currentSort.col]; if(ca==null) return 1; if(cb==null) return -1; return (ca>cb?1:ca<cb?-1:0)*window.currentSort.dir; }); }
-    var header = '<div class="screener-card"><div class="screener-header">'+(type==='crypto'?'Crypto Prices':type==='metal'?'Metal Overview':'Forex Overview')+'<div class="screener-meta">Pairs: '+(window.screenerData?window.screenerData.length:0)+'</div></div>'+
-      '<table class="data-table" style="margin-top:8px"><thead><tr>'+
-      '<th onclick="window.sortScreener(\'symbol\')">Symbol</th><th onclick="window.sortScreener(\'price\')">Price</th><th onclick="window.sortScreener(\'pct\')">24H</th><th>High</th><th>Low</th><th>Vol</th><th>Spark</th></tr></thead><tbody>';
-    var rowsHtml = data.map(function(r){ if(!r) return ''; var price = r.price?fmt(r.price):'—'; var pct = screenerChangeBadge(r.pct); var high = r.high?fmt(r.high):'—'; var low = r.low?fmt(r.low):'—'; var vol = r.vol?Number(r.vol).toLocaleString():'—'; var canvas = r.series && r.series.length?'<canvas class="spark-canvas" data-series-index="'+Math.random().toString(36).substr(2,6)+'"></canvas>':'<div style="color:var(--t3)">—</div>';
-      return '<tr><td style="font-weight:700;color:var(--t1)">'+r.symbol+'</td><td class="price">'+price+'</td><td>'+pct+'</td><td>'+high+'</td><td>'+low+'</td><td class="vol">'+vol+'</td><td>'+canvas+'</td></tr>'; }).join('');
-    res.innerHTML = header + rowsHtml + '</tbody></table></div>';
-    // draw sparklines
-    setTimeout(function(){ var canvases = res.querySelectorAll('.spark-canvas'); canvases.forEach(function(c){ var idx = c.getAttribute('data-series-index'); var parentRow = c.closest('tr'); var sym = parentRow.querySelector('td').textContent; var item = (window.screenerData||[]).find(function(x){ return x.symbol===sym; }); if(item && item.series && item.series.length){ var dataArr = item.series.map(function(v){ return v.c || v.close || v[4] || 0; }); drawSparkline(c, dataArr); } }); }, 80);
-  }
-
-  window.sortScreener = function(col){ if(window.currentSort.col===col) window.currentSort.dir *= -1; else { window.currentSort.col = col; window.currentSort.dir = 1; } if(window.screenerData) renderScreenerTable(window.screenerData); };
-
-  function drawSparkline(canvas, data){ try{ var ctx = canvas.getContext('2d'); var w = canvas.width = canvas.clientWidth; var h = canvas.height = canvas.clientHeight; ctx.clearRect(0,0,w,h); if(!data||!data.length) return; var max=Math.max.apply(null,data); var min=Math.min.apply(null,data); var range = max-min||1; ctx.beginPath(); data.forEach(function(v,i){ var x = i/(data.length-1)*(w-2)+1; var y = h-2 - ((v-min)/range)*(h-4)+1; if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }); ctx.strokeStyle = 'rgba(240,192,64,0.9)'; ctx.lineWidth=1.2; ctx.stroke(); }catch(e){console.warn('sparkline err',e);} }
-  function drawSparkline(canvas, data){ try{ var ctx = canvas.getContext('2d'); var w = canvas.width = canvas.clientWidth; var h = canvas.height = canvas.clientHeight; ctx.clearRect(0,0,w,h); if(!data||!data.length) return; var max=Math.max.apply(null,data); var min=Math.min.apply(null,data); var range = max-min||1; var pts = data.map(function(v,i){ return {x: i/(data.length-1)*(w-2)+1, y: h-2 - ((v-min)/range)*(h-4)+1, v: v}; });
-      // gradient fill
-      var grad = ctx.createLinearGradient(0,0,0,h); grad.addColorStop(0,'rgba(240,192,64,0.18)'); grad.addColorStop(1,'rgba(240,192,64,0)');
-      ctx.beginPath(); pts.forEach(function(p,i){ if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
-      ctx.lineWidth=1.4; var last = pts[pts.length-1].v; var first = pts[0].v; var color = last>=first ? 'rgba(34,217,138,0.95)' : 'rgba(255,77,109,0.95)'; ctx.strokeStyle = color; ctx.stroke();
-      // fill area
-      ctx.lineTo(w-1,h); ctx.lineTo(1,h); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
-      // small dot at last
-      ctx.beginPath(); ctx.arc(pts[pts.length-1].x, pts[pts.length-1].y, 2, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
-    }catch(e){console.warn('sparkline err',e);} }
+function drawSparkline(canvas, data){
+  try{
+    var ctx = canvas.getContext('2d');
+    var w = canvas.width = canvas.clientWidth;
+    var h = canvas.height = canvas.clientHeight;
+    ctx.clearRect(0,0,w,h);
+    if(!data||!data.length) return;
+    var max=Math.max.apply(null,data); var min=Math.min.apply(null,data);
+    var range = max-min||1;
+    var pts = data.map(function(v,i){ return {x: i/(data.length-1)*(w-2)+1, y: h-2 - ((v-min)/range)*(h-4)+1, v: v}; });
+    var grad = ctx.createLinearGradient(0,0,0,h);
+    grad.addColorStop(0,'rgba(240,192,64,0.18)');
+    grad.addColorStop(1,'rgba(240,192,64,0)');
+    ctx.beginPath();
+    pts.forEach(function(p,i){ if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+    var last = pts[pts.length-1].v, first = pts[0].v;
+    var color = last>=first ? 'rgba(34,217,138,0.95)' : 'rgba(255,77,109,0.95)';
+    ctx.lineWidth=1.4; ctx.strokeStyle = color; ctx.stroke();
+    ctx.lineTo(w-1,h); ctx.lineTo(1,h); ctx.closePath(); ctx.fillStyle = grad; ctx.fill();
+    ctx.beginPath(); ctx.arc(pts[pts.length-1].x, pts[pts.length-1].y, 2, 0, Math.PI*2); ctx.fillStyle = color; ctx.fill();
+  }catch(e){console.warn('sparkline err',e);}
+}
 
 function screenerChangeBadge(v){
   if (v==null || v===undefined || isNaN(parseFloat(v))) return '<span style="color:var(--t3)">—</span>';
@@ -873,6 +981,7 @@ function screenerChangeBadge(v){
   return '<span class="'+cls+'" style="font-weight:700">'+(n>=0?'+':'')+n.toFixed(2)+'%</span>';
 }
 
+// ── GROQ AI ──
 async function groqChat(prompt) {
   var key = GROQ_KEY || localStorage.getItem('dfxai_groq') || '';
   if (!key) throw new Error('Groq API key belum diset. Masuk ke tab AI Analysis dulu.');
@@ -921,7 +1030,6 @@ window.renderAIPanel = async function() {
   GROQ_KEY = key;
   if (panel) panel.innerHTML='<div style="padding:20px;color:var(--gold);text-align:center">⟳ Analyzing market conditions...</div>';
 
-  // Defensive defaults: state may be empty during initial load
   var x = state.xau || {};
   var d = state.dxy || {};
   var s = Array.isArray(state.xauSeries) ? state.xauSeries : [];
@@ -952,15 +1060,12 @@ var geoNewsLastFetch = 0;
 var geoAutoRefreshTimer = null;
 
 var GEO_RSS_SOURCES = [
-  {url:'https://feeds.reuters.com/reuters/topNews',label:'REUTERS'},
-  {url:'https://feeds.reuters.com/Reuters/worldNews',label:'REUTERS'},
   {url:'https://feeds.bbci.co.uk/news/world/rss.xml',label:'BBC'},
   {url:'https://feeds.bbci.co.uk/news/business/rss.xml',label:'BBC BIZ'},
   {url:'https://www.aljazeera.com/xml/rss/all.xml',label:'AL JAZEERA'},
   {url:'https://rss.nytimes.com/services/xml/rss/nyt/World.xml',label:'NYT'},
   {url:'https://rss.nytimes.com/services/xml/rss/nyt/Economy.xml',label:'NYT ECON'},
   {url:'https://feeds.skynews.com/feeds/rss/world.xml',label:'SKY NEWS'},
-  {url:'https://www.ft.com/?format=rss',label:'FT'},
   {url:'https://www.theguardian.com/world/rss',label:'GUARDIAN'},
 ];
 
@@ -999,13 +1104,17 @@ async function fetchGeoNewsAPI() {
           && (Date.now() - new Date(a.pubDate) < 259200000);
       })
       .map(function(a){
-        return { title: a.title, date:  a.pubDate || '', source: a.source_id ? a.source_id.toUpperCase().substring(0,10) : 'NEWS' };
+        return { title: a.title, date: a.pubDate || '', source: a.source_id ? a.source_id.toUpperCase().substring(0,10) : 'NEWS' };
       });
   } catch(e) { console.warn('newsdata geo fail:', e.message); return []; }
 }
 
-async function fetchGeoRSS(src){
-  var proxies = ['https://api.allorigins.win/raw?url=','https://corsproxy.io/?'];
+// ── FIX: fetchGeoRSS now accepts skipFilter param + fixed corsproxy URL ──
+async function fetchGeoRSS(src, skipFilter){
+  var proxies = [
+    'https://api.allorigins.win/raw?url=',
+    'https://corsproxy.io/?url='
+  ];
   var r = await Promise.any(proxies.map(function(p){
     return fetch(p+encodeURIComponent(src.url),{signal:AbortSignal.timeout(6000)})
       .then(function(res){ if(!res.ok) throw new Error('not ok'); return res.text(); });
@@ -1018,7 +1127,11 @@ async function fetchGeoRSS(src){
       title=title.replace(/<!\[CDATA\[(.*?)\]\]>/g,'$1').replace(/<[^>]+>/g,'').trim();
       var date=(item.querySelector('pubDate')||{}).textContent||'';
       return{title:title,date:date,source:src.label};
-    }).filter(function(a){return geoIsRelevant(a.title)&&a.title.length>10;});
+    }).filter(function(a){
+      if(a.title.length<=10) return false;
+      if(skipFilter) return true;
+      return geoIsRelevant(a.title);
+    });
   } catch(e){ return []; }
 }
 
@@ -1037,7 +1150,7 @@ window.refreshGeoNews = async function(force){
     var all=[];
     var naArticles = await fetchGeoNewsAPI();
     if(naArticles.length > 0) { all = naArticles; } else {
-      var results=await Promise.allSettled(GEO_RSS_SOURCES.map(fetchGeoRSS));
+      var results=await Promise.allSettled(GEO_RSS_SOURCES.map(function(s){ return fetchGeoRSS(s); }));
       results.forEach(function(r){if(r.status==='fulfilled'&&r.value)all=all.concat(r.value);});
     }
     all.sort(function(a,b){ var da=new Date(a.date)||0, db=new Date(b.date)||0; return db-da; });
@@ -1093,7 +1206,7 @@ window.runGeoAI = async function(){
   try{
     var text=await groqChat(prompt);
     var html=text.replace(/\*\*(.*?)\*\*/g,'<strong style="color:var(--gold)">$1</strong>').replace(/^[•\-\*]\s/gm,'<br>• ').replace(/\n/g,'<br>');
-    out.innerHTML='<div style="color:var(--text)">'+html+'</div><div style="margin-top:8px;font-size:9px;color:var(--t3)">Updated: '+new Date().toLocaleTimeString()+' · Groq llama-3.3-70b</div>';
+    out.innerHTML='<div style="color:var(--text)">'+html+'</div><div style="margin-top:8px;font-size:9px;color:var(--t3)">Updated: '+new Date().toLocaleTimeString()+' · Groq</div>';
     var score=70;
     if(/strongly bullish|critical|escalat|nuclear/i.test(text))score=85;
     else if(/bearish|de-escalat|ceasefire/i.test(text))score=45;
@@ -1104,7 +1217,7 @@ window.runGeoAI = async function(){
   finally{if(btn){btn.textContent='⚡ ANALYZE';btn.disabled=false;}}
 };
 
-// ── BTC via CoinGecko ──
+// ── BTC ──
 async function fetchBTCPrice() {
   try {
     var url = 'https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true&include_24hr_vol=true';
@@ -1138,7 +1251,7 @@ async function loadBTCChart() {
     if (!raw||!raw.prices||!raw.prices.length) throw new Error('No data');
 
     var prices = raw.prices;
-    var series = prices.map(function(p,i){ return {t:p[0]/1000, o:p[1], h:p[1], l:p[1], c:p[1]}; });
+    var series = prices.map(function(p){ return {t:p[0]/1000, o:p[1], h:p[1], l:p[1], c:p[1]}; });
     state.btcSeries = series;
     var labels = series.map(function(v){ var d = new Date(v.t*1000); return d.getHours().toString().padStart(2,'0')+':'+d.getMinutes().toString().padStart(2,'0'); });
     var closes = series.map(function(v){ return v.c; });
@@ -1261,7 +1374,7 @@ function renderHighImpact(){
   }).join('');
 }
 
-// ── NEWS via NewsAPI.org / Newsdata.io ──
+// ── NEWS ──
 var NEWS_DATA_KEY = localStorage.getItem('dfxai_newsdata') || '';
 var newsLastFetch = 0;
 var newsCached = [];
@@ -1297,6 +1410,7 @@ function renderNewsFallbackStatic() {
   ]);
 }
 
+// ── FIX: use skipFilter=true so business/econ RSS isn't filtered out ──
 async function renderNewsFallback() {
   console.log('[news] Fetching live financial RSS as dynamic fallback...');
   var rssFeeds = [
@@ -1306,20 +1420,15 @@ async function renderNewsFallback() {
   ];
   try {
     var all = [];
-    var results = await Promise.allSettled(rssFeeds.map(fetchGeoRSS));
+    var results = await Promise.allSettled(rssFeeds.map(function(f){ return fetchGeoRSS(f, true); }));
     results.forEach(function(r) {
       if(r.status === 'fulfilled' && r.value) {
         r.value.forEach(function(item) {
-          all.push({
-            t: item.title,
-            s: item.source || 'RSS',
-            d: '',
-            date: item.date || ''
-          });
+          all.push({ t: item.title, s: item.source || 'RSS', d: '', date: item.date || '' });
         });
       }
     });
-    
+
     if(all.length > 0) {
       all.sort(function(a,b){ return new Date(b.date || 0) - new Date(a.date || 0); });
       var seen = [];
@@ -1328,7 +1437,7 @@ async function renderNewsFallback() {
         if(seen.indexOf(k2) !== -1) return false;
         seen.push(k2); return true;
       }).slice(0, 8);
-      
+
       console.log('[news] loaded dynamic RSS fallback items:', all.length);
       renderNewsPanel(all);
       newsCached = all;
@@ -1348,116 +1457,17 @@ async function fetchNews(force) {
   if(!force && newsCached.length > 0 && now - newsLastFetch < 900000) { renderNewsPanel(newsCached); return; }
   var key = NEWS_DATA_KEY || localStorage.getItem('dfxai_newsdata') || '';
   var panelDebug = document.getElementById('newsPreview');
-  if(!key) { 
-    if(panelDebug) panelDebug.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3)">News key not set — fetching live RSS...</div>'; 
-    await renderNewsFallback(); 
-    return; 
+  if(!key) {
+    if(panelDebug) panelDebug.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3)">News key not set — fetching live RSS...</div>';
+    await renderNewsFallback();
+    return;
   }
   if(panelDebug) panelDebug.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3)">⟳ Fetching news...</div>';
   try {
     var allArticles = [];
     var q = 'gold+OR+XAU+OR+Federal+Reserve+OR+dollar+OR+DXY+OR+interest+OR+rate+OR+inflation';
     var url = 'https://newsdata.io/api/1/news?apikey='+key+'&q='+q+'&language=en&size=20&prioritydomain=top';
-    console.log('[news] fetching:', url);
     var r = await fetch(url, {signal: AbortSignal.timeout(10000)});
-    console.log('[news] response status:', r.status);
     var data = await r.json();
-    console.log('[news] response:', data && data.status ? data.status : data);
     if(data.status === 'success' && data.results && data.results.length) {
-      data.results.filter(function(a){ return a.title && a.title.length > 10 && isCredibleSource(a.source_id) && (Date.now() - new Date(a.pubDate) < 259200000); })
-        .forEach(function(a) { allArticles.push({ t: a.title, s: a.source_id ? a.source_id.toUpperCase().substring(0,12) : 'NEWS', d: a.description ? a.description.substring(0,120) : '', date: a.pubDate || '' }); });
-    }
-    if(allArticles.length === 0) {
-      console.warn('[news] no articles from NewsData, switching to dynamic RSS fallback');
-      if(panelDebug) panelDebug.innerHTML='<div style="padding:20px;text-align:center;color:var(--t3)">Empty NewsData response — fetching live RSS...</div>';
-      await renderNewsFallback();
-      return;
-    }
-    allArticles.sort(function(a,b){ return new Date(b.date)-new Date(a.date); });
-    var seen = [];
-    allArticles = allArticles.filter(function(a) { var k2 = a.t.substring(0,30).toLowerCase(); if(seen.indexOf(k2) !== -1) return false; seen.push(k2); return true; }).slice(0, 8);
-    newsCached = allArticles; newsLastFetch = now; renderNewsPanel(allArticles);
-  } catch(e) {
-    console.warn('[news] fetch error', e && e.message || e);
-    if(newsCached.length > 0) {
-      renderNewsPanel(newsCached);
-    } else {
-      if(panelDebug) panelDebug.innerHTML='<div style="padding:20px;text-align:center;color:var(--red)">Error fetching NewsData: '+(e.message||e)+' — fetching live RSS...</div>';
-      await renderNewsFallback();
-    }
-  }
-}
-
-// ── GOLD ETF INFLOW/OUTFLOW ──
-var GOLD_ETF_DATA = {
-  funds: [
-    {name:'SPDR Gold Shares',     ticker:'GLD',   tonnes:857.2,  change:+4.2,  changeWk:+8.1,  aum:'$71.2B', region:'US'},
-    {name:'iShares Gold Trust',   ticker:'IAU',   tonnes:312.4,  change:-1.1,  changeWk:+2.4,  aum:'$26.0B', region:'US'},
-    {name:'SPDR Gold MiniShares', ticker:'GLDM',  tonnes:74.3,   change:+1.8,  changeWk:+3.2,  aum:'$6.2B',  region:'US'},
-    {name:'iShares Physical Gold',ticker:'IGLN',  tonnes:236.1,  change:+3.4,  changeWk:+6.7,  aum:'$19.6B', region:'EU'},
-    {name:'Xetra-Gold',           ticker:'4GLD',  tonnes:246.8,  change:-0.6,  changeWk:+1.2,  aum:'$20.5B', region:'EU'},
-    {name:'ICBC Gold ETF',        ticker:'518880',tonnes:85.4,   change:+5.6,  changeWk:+9.2,  aum:'$7.1B',  region:'Asia'},
-  ],
-  monthly: {
-    labels: ['Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun','Jul'],
-    inflow:  [18.4, 24.1, 31.2, 12.8,  0,   42.1, 38.6, 15.3, 28.7, 19.2, 34.5, 11.8],
-    outflow: [-5.2, -8.1, -3.4,-12.1,-21.3, -4.2, -6.8, -9.1, -5.3, -8.4, -3.2, -6.7],
-  }, lastUpdate: 'Jul 2026'
-};
-
-var etfChart = null;
-function renderGoldETF() {
-  var data = GOLD_ETF_DATA;
-  var totalT    = data.funds.reduce(function(s,f){return s+f.tonnes;},0);
-  var total24h  = data.funds.reduce(function(s,f){return s+f.change;},0);
-  var total7d   = data.funds.reduce(function(s,f){return s+f.changeWk;},0);
-  var netArr    = data.monthly.inflow.map(function(v,i){return v+data.monthly.outflow[i];});
-  var lastNet   = netArr[netArr.length-1];
-
-  var sumEl = document.getElementById('etfSummary');
-  if(sumEl) {
-    function card(label, val, unit, color, sub) {
-      return '<div style="text-align:center;padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid '+color.replace('var(','rgba(').replace(')',',0.25)')+'"><div class="stat-label">'+label+'</div><div style="font-family:\'Syne\',sans-serif;font-size:22px;font-weight:800;color:'+color+'">'+val+'</div><div style="font-size:9px;color:var(--t3)">'+sub+'</div></div>';
-    }
-    sumEl.innerHTML = card('TOTAL HOLDINGS', totalT.toFixed(1)+'T', '', 'var(--gold)', 'All tracked ETFs') + card('24H FLOW', (total24h>=0?'+':'')+total24h.toFixed(1)+'T', '', total24h>=0?'var(--green)':'var(--red)', total24h>=0?'NET INFLOW':'NET OUTFLOW') + card('7D FLOW',  (total7d>=0?'+':'')+total7d.toFixed(1)+'T',  '', total7d>=0?'var(--green)':'var(--red)',  total7d>=0?'BULLISH SIGNAL':'BEARISH SIGNAL') + card('LAST MONTH NET', (lastNet>=0?'+':'')+lastNet.toFixed(1)+'T', '', lastNet>=0?'var(--green)':'var(--red)', data.lastUpdate);
-  }
-
-  var tbl = document.getElementById('etfTable');
-  if(tbl) {
-    tbl.innerHTML = '<tr><th>FUND</th><th>TICKER</th><th>HOLDINGS</th><th>24H</th><th>7D</th><th>AUM</th><th>SIGNAL</th></tr>' +
-      data.funds.map(function(f){
-        return '<tr><td>'+f.name+'</td><td style="color:var(--blue);font-weight:700">'+f.ticker+'</td><td>'+f.tonnes.toFixed(1)+'T</td><td style="color:'+(f.change>=0?'var(--green)':'var(--red)')+'">'+(f.change>=0?'+':'')+f.change.toFixed(1)+'T</td><td style="color:'+(f.changeWk>=0?'var(--green)':'var(--red)')+'">'+(f.changeWk>=0?'+':'')+f.changeWk.toFixed(1)+'T</td><td style="color:var(--t2)">'+f.aum+'</td><td style="color:'+(f.changeWk>3?'var(--green)':f.changeWk<-3?'var(--red)':'var(--gold)')+';font-weight:700">'+(f.changeWk>3?'▲ INFLOW':f.changeWk<-3?'▼ OUTFLOW':'◆ NEUTRAL')+'</td></tr>';
-      }).join('');
-  }
-
-  ['US','EU','Asia'].forEach(function(r){ var t = data.funds.filter(function(f){return f.region===r;}).reduce(function(s,f){return s+f.tonnes;},0); setEl('etf'+r, t.toFixed(1)+'T'); });
-  var ctx = document.getElementById('etfFlowChart'); if(!ctx) return;
-  if(etfChart) { etfChart.destroy(); etfChart=null; }
-  var net = data.monthly.inflow.map(function(v,i){return +(v+data.monthly.outflow[i]).toFixed(1);});
-  etfChart = new Chart(ctx, {
-    type: 'bar', data: { labels: data.monthly.labels, datasets: [ {label:'Inflow (T)', data:data.monthly.inflow, backgroundColor:'rgba(34,217,138,0.5)',borderColor:'rgba(34,217,138,0.8)',borderWidth:1,borderRadius:2},{label:'Outflow (T)', data:data.monthly.outflow, backgroundColor:'rgba(255,77,109,0.5)',borderColor:'rgba(255,77,109,0.8)',borderWidth:1,borderRadius:2},{label:'Net (T)', data:net, type:'line', borderColor:'#f0c040', borderWidth:2, pointRadius:3, fill:false, tension:0.3} ] },
-    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#7a8aaa',font:{size:9}}}}, scales:{ x:{ticks:{color:'#3d4f6e',font:{size:9}},grid:{color:'rgba(26,37,64,0.5)'}}, y:{ticks:{color:'#3d4f6e',font:{size:9}},grid:{color:'rgba(26,37,64,0.5)'},position:'left'} } }
-  });
-}
-
-// ── INIT ──
-async function init() {
-  NEWS_DATA_KEY = localStorage.getItem('dfxai_newsdata') || '';
-  if(NEWS_DATA_KEY) {
-    var ndInput = document.getElementById('newsdataKeyInput'); if(ndInput) ndInput.placeholder = 'Key sudah tersimpan ✓';
-    var ndStatus = document.getElementById('ndKeyStatus'); if(ndStatus) ndStatus.textContent = '✓ Key active';
-  }
-  updateMarketBanner();
-  setInterval(updateMarketBanner, 60000);
-  renderSignalHistory();
-  renderHighImpact();
-  await Promise.all([fetchQuotes(), loadMainChart('1h'), loadDxyChart(), fetchNews()]);
-  loadBTCChart();
-  window.refreshFedWatch();
-  setInterval(fetchQuotes, 60000);
-  setInterval(fetchBTCPrice, 60000);
-  setInterval(function(){loadMainChart(state.interval);}, 300000);
-  setInterval(loadBTCChart, 300000);
-}
-
-document.addEventListener('DOMContentLoaded', function() { init(); });
+      data.results.filter(function(a){ return a.title && a.title.length > 10 && isCredibleSource(a.source_id) && (Date.now() - new Date(a.p
