@@ -693,6 +693,12 @@ window.switchPage = function(page, el) {
   if(page==='screener') renderScreenerPanel();
 };
 
+function refreshDashboardWidgets() {
+  updateLiveCOTData();
+  simulateETFUpdate();
+  if (window.refreshGeoNews) window.refreshGeoNews(true);
+}
+
 window.changeInterval = function(interval, el) {
   document.querySelectorAll('.panel-header .tab').forEach(function(t){t.classList.remove('active');});
   if(el) el.classList.add('active');
@@ -1276,7 +1282,7 @@ function simulateETFUpdate() {
     f.changeWk = +(f.changeWk * 0.9 + delta).toFixed(1);
     f.tonnes = +(f.tonnes + delta * 0.01).toFixed(1);
   });
-  GOLD_ETF_DATA.lastUpdate = new Date().toISOString().slice(0,10);
+  GOLD_ETF_DATA.lastUpdate = new Date().toLocaleDateString('en-US', {month:'short', day:'numeric', year:'numeric'});
   var etfPage = document.getElementById('page-etf');
   if (etfPage && etfPage.classList.contains('active')) renderGoldETF();
 }
@@ -1324,13 +1330,19 @@ async function init() {
   setInterval(updateMarketBanner, 60000);
   renderSignalHistory();
   renderHighImpact();
+  renderGoldETF();
   await Promise.all([fetchQuotes(), loadMainChart('1h'), loadDxyChart(), fetchNews()]);
   loadBTCChart();
+  updateLiveCOTData();
+  if (window.refreshGeoNews) window.refreshGeoNews(true);
   window.refreshFedWatch();
   setInterval(fetchQuotes, 60000);
   setInterval(fetchBTCPrice, 60000);
   setInterval(function(){loadMainChart(state.interval);}, 300000);
   setInterval(loadBTCChart, 300000);
+  setInterval(updateLiveCOTData, 600000);
+  setInterval(function(){ simulateETFUpdate(); }, 300000);
+  setInterval(function(){ if (window.refreshGeoNews) window.refreshGeoNews(true); }, 600000);
 }
 
 document.addEventListener('DOMContentLoaded', function() { init(); });
