@@ -1141,9 +1141,7 @@ async function fetchFedWatchSource() {
 
   try {
     var url = 'https://www.alphavantage.co/query?function=FEDERAL_FUNDS_RATE&interval=monthly&apikey=demo';
-    var r = await fetch(url, {signal: AbortSignal.timeout(9000)});
-    if (!r.ok) throw new Error('Alpha Vantage fetch failed');
-    var data = await r.json();
+    var data = await proxyFetch(url);
     if (data && data.data && data.data.length) {
       var latestRate = parseFloat(data.data[0].value || data.data[0].close || 0);
       var nextMeeting = meetings[0] || {label: 'Sep 17, 2026'};
@@ -1153,7 +1151,7 @@ async function fetchFedWatchSource() {
         var cut = idx === 0 ? smooth : Math.max(18, Math.min(90, item.cut));
         return { label: item.label, cut: cut, hold: 100 - cut };
       });
-      return { meetings: bars, latestRate: latestRate || 4.38 }; 
+      return { meetings: bars, latestRate: latestRate || 4.38 };
     }
   } catch (e) {
     console.warn('Fed watch source unavailable:', e && e.message || e);
